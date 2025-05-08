@@ -114,12 +114,12 @@ const Chat: React.FC = () => {
                 <Logo size="sm" />
               </div>
               <motion.div 
-                className="bg-dark-card rounded-lg p-4 max-w-[80%] relative shadow-md chat-bubble bot-bubble"
+                className="bg-zinc-900 rounded-lg p-4 max-w-[80%] relative shadow-md chat-bubble bot-bubble border border-zinc-800"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3, duration: 0.3 }}
               >
-                <p className="text-gray-200">
+                <p className="text-white">
                   I can remember our entire conversation history and learn about your preferences over time to provide more personalized responses. Feel free to ask me anything!
                 </p>
               </motion.div>
