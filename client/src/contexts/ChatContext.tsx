@@ -160,12 +160,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       const aiMessage = await response.json();
       
-      // Replace temp user message with real one and add AI response
+      // Update the message list with both user message and AI response
       setMessages((prev) => {
-        // Filter out the temp message
+        // First filter out the temp message
         const filtered = prev.filter(m => m.id !== tempUserMessage.id);
-        // Add the real messages from server
-        return [...filtered, aiMessage];
+        
+        // Get the real user message from the server (if available)
+        // Or create a permanent version of the temporary message
+        const userMessage: Message = {
+          id: `user-${Date.now()}`,
+          userId: user.id,
+          role: 'user',
+          content,
+          timestamp: new Date(),
+        };
+        
+        // Add both the user message and AI response
+        return [...filtered, userMessage, aiMessage];
       });
     } catch (error) {
       console.error('Failed to send message:', error);

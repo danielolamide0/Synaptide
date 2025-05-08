@@ -76,6 +76,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Message content is required" });
       }
 
+      console.log(`Processing message for user ${userId}: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`);
+
       // Save user message
       const userMessage = await storage.createMessage(userId, {
         userId,
@@ -86,12 +88,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get all messages for context
       const messageHistory = await storage.getMessagesForUser(userId);
+      console.log(`Retrieved ${messageHistory.length} messages for context`);
       
-      // Format messages for OpenAI
-      const formattedMessages = messageHistory.map(msg => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+      // Create conversation history for OpenAI
+      // Include at least 2 system messages to ensure context is maintained
+      const formattedMessages = [
+        {
+          role: "system",
+          content: "You are Synaptide, an intelligent assistant with perfect memory. Always reference past conversations and build on what you've learned about the user. Be helpful, concise, and conversational."
+        },
+        {
+          role: "system",
+          content: "Today is " + new Date().toLocaleDateString() + ". Make sure to provide accurate and up-to-date information."
+        }
+      ];
+      
+      // Add message history
+      messageHistory.forEach(msg => {
+        formattedMessages.push({
+          role: msg.role,
+          content: msg.content,
+        });
+      });
+      
+      console.log(`Sending ${formattedMessages.length} messages to OpenAI for processing`);
 
       // Generate AI response
       const aiResponseContent = await generateChatResponse(formattedMessages);
@@ -104,6 +124,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: new Date(),
       });
 
+      console.log(`Saved AI response with ID: ${aiMessage.id}`);
+
       // Analyze user preferences (happens in background, doesn't block response)
       if (messageHistory.length % 5 === 0) { // Only analyze periodically
         analyzeUserPreferences(formattedMessages)
@@ -115,6 +137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
       }
 
+      // Return the full conversation in response
       res.status(201).json(aiMessage);
     } catch (error) {
       console.error(`Error sending message for user ${req.params.userId}:`, error);

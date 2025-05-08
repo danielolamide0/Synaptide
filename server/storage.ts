@@ -146,11 +146,11 @@ export class FirebaseStorage implements IStorage {
     try {
       console.log(`Getting messages for user ${userId}`);
       
-      // Query messages where userId matches
+      // Use a simpler query without composite indexes
+      // First get all messages for this user
       const q = query(
         messagesCollection,
-        where("userId", "==", userId),
-        orderBy("timestamp")
+        where("userId", "==", userId)
       );
       
       const querySnapshot = await getDocs(q);
@@ -162,6 +162,14 @@ export class FirebaseStorage implements IStorage {
         messages.push(convertFirebaseDocToMessage(doc));
       });
       
+      // Sort manually by timestamp
+      messages.sort((a, b) => {
+        const timeA = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
+        const timeB = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
+        return timeA - timeB;
+      });
+      
+      console.log(`Returning ${messages.length} sorted messages for user ${userId}`);
       return messages;
     } catch (error) {
       console.error(`Error getting messages for user ${userId}:`, error);
