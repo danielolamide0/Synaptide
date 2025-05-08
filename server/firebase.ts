@@ -2,6 +2,13 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, getDocs, query, orderBy, deleteDoc, DocumentData } from "firebase/firestore";
 import { Message, UserProfile } from "@shared/schema";
 
+// Log environment variables for debugging
+console.log("Firebase config check:", {
+  apiKey: process.env.VITE_FIREBASE_API_KEY ? "Present" : "Missing",
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID ? "Present" : "Missing",
+  appId: process.env.VITE_FIREBASE_APP_ID ? "Present" : "Missing",
+});
+
 // Firebase configuration
 const firebaseConfig = {
   apiKey: process.env.VITE_FIREBASE_API_KEY,
@@ -9,6 +16,8 @@ const firebaseConfig = {
   projectId: process.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: `${process.env.VITE_FIREBASE_PROJECT_ID}.appspot.com`,
   appId: process.env.VITE_FIREBASE_APP_ID,
+  // Adding these to fix Firebase permissions
+  databaseURL: `https://${process.env.VITE_FIREBASE_PROJECT_ID}-default-rtdb.firebaseio.com`,
 };
 
 // Initialize Firebase

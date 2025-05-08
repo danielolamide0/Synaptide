@@ -113,12 +113,12 @@ export class FirebaseStorage implements IStorage {
         const profileRef = doc(userProfileCollection, existingProfile.id);
         
         // Merge interests arrays
-        const mergedInterests = [
-          ...new Set([
-            ...(existingProfile.interests || []),
-            ...(profileData.interests || [])
-          ])
+        const combinedInterests = [
+          ...(existingProfile.interests || []),
+          ...(profileData.interests || [])
         ];
+        // Remove duplicates
+        const mergedInterests = Array.from(new Set(combinedInterests));
         
         // Merge preferences objects
         const mergedPreferences = {
@@ -165,4 +165,80 @@ export class FirebaseStorage implements IStorage {
   }
 }
 
-export const storage = new FirebaseStorage();
+// Create a fallback memory storage in case Firebase has permission issues
+export class MemStorage implements IStorage {
+  private messages: Map<string, Message>;
+  private userProfile: UserProfile | undefined;
+  private currentId: number;
+
+  constructor() {
+    this.messages = new Map();
+    this.currentId = 1;
+  }
+
+  async createMessage(insertMessage: InsertMessage): Promise<Message> {
+    const id = `msg_${this.currentId++}`;
+    const message: Message = { ...insertMessage, id };
+    this.messages.set(id, message);
+    return message;
+  }
+
+  async getAllMessages(): Promise<Message[]> {
+    return Array.from(this.messages.values()).sort((a, b) => {
+      const dateA = new Date(a.timestamp);
+      const dateB = new Date(b.timestamp);
+      return dateA.getTime() - dateB.getTime();
+    });
+  }
+
+  async clearMessages(): Promise<void> {
+    this.messages.clear();
+    return;
+  }
+
+  async getUserProfile(): Promise<UserProfile | undefined> {
+    return this.userProfile;
+  }
+
+  async updateUserProfile(profileData: Partial<UserProfile>): Promise<UserProfile> {
+    if (!this.userProfile) {
+      this.userProfile = {
+        id: "profile_1",
+        interests: [],
+        communicationStyle: "neutral",
+        preferences: {},
+        ...profileData
+      };
+    } else {
+      this.userProfile = {
+        ...this.userProfile,
+        ...profileData,
+        // Merge arrays for interests
+        interests: Array.from(new Set([
+          ...(this.userProfile.interests || []),
+          ...(profileData.interests || [])
+        ])),
+        // Merge objects for preferences
+        preferences: {
+          ...(this.userProfile.preferences || {}),
+          ...(profileData.preferences || {})
+        }
+      };
+    }
+    
+    return this.userProfile;
+  }
+}
+
+// Try to use Firebase first, if it fails (permission issues), fall back to memory storage
+let storageInstance: IStorage;
+
+try {
+  storageInstance = new FirebaseStorage();
+  console.log("Using Firebase storage");
+} catch (error) {
+  console.warn("Failed to initialize Firebase storage, falling back to memory storage:", error);
+  storageInstance = new MemStorage();
+}
+
+export const storage = storageInstance;

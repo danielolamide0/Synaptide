@@ -52,11 +52,11 @@ const Chat: React.FC = () => {
   `;
 
   return (
-    <div className="flex flex-col h-screen bg-dark-bg text-white">
+    <div className="flex flex-col h-screen bg-black text-white">
       <style>{chatBubbleStyles}</style>
       
       {/* Header */}
-      <header className="flex items-center p-4 bg-dark-surface border-b border-dark-border">
+      <header className="flex items-center p-4 bg-black border-b border-zinc-800">
         <Button 
           variant="ghost" 
           size="icon" 
@@ -147,13 +147,13 @@ const Chat: React.FC = () => {
               <div 
                 className={`${
                   message.role === 'user' 
-                    ? 'bg-primary' 
-                    : 'bg-dark-card'
+                    ? 'bg-white text-black' 
+                    : 'bg-zinc-900 text-white border border-zinc-800'
                 } rounded-lg p-4 max-w-[80%] relative shadow-md chat-bubble ${
                   message.role !== 'user' ? 'bot-bubble' : ''
                 }`}
               >
-                <p className={message.role === 'user' ? 'text-white' : 'text-gray-200'}>
+                <p>
                   {message.content}
                 </p>
               </div>
@@ -177,13 +177,13 @@ const Chat: React.FC = () => {
       </main>
 
       {/* Input form */}
-      <div className="p-4 bg-dark-surface border-t border-dark-border">
+      <div className="p-4 bg-black border-t border-zinc-800">
         <form onSubmit={handleSubmit} className="flex items-center space-x-2">
           <Button 
             type="button" 
             variant="ghost" 
             size="icon"
-            className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-dark-card transition-colors"
+            className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-zinc-900 transition-colors"
           >
             <i className="fas fa-paperclip"></i>
           </Button>
@@ -194,7 +194,7 @@ const Chat: React.FC = () => {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder="Type your message..." 
-              className="w-full py-3 px-4 bg-dark-card text-white rounded-full focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder-gray-500"
+              className="w-full py-3 px-4 bg-zinc-900 text-white rounded-full focus:outline-none focus:ring-2 focus:ring-white/50 placeholder-gray-500 border-zinc-700"
               disabled={isLoading}
             />
           </div>
@@ -202,7 +202,7 @@ const Chat: React.FC = () => {
           <Button 
             type="submit" 
             disabled={isLoading || !inputValue.trim()}
-            className="p-3 bg-primary rounded-full text-white hover:bg-primary-hover transition-colors"
+            className="p-3 bg-white text-black rounded-full hover:bg-gray-200 transition-colors"
           >
             <i className="fas fa-paper-plane"></i>
           </Button>
