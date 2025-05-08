@@ -1,0 +1,1978 @@
+#AuthContext.tsx
+
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  Auth
+} from "firebase/auth";
+import { UserAuth } from "@shared/types";
+import { auth } from "../lib/firebase";
+
+// Ensure auth is not null
+if (!auth) {
+  console.error("Firebase auth is not initialized, some features may not work");
+}
+
+// Define a default state for the context
+const defaultState = {
+  currentUser: null,
+  isAuthenticated: false,
+  isLoading: true,
+  login: async () => {},
+  signup: async () => {},
+  logout: async () => {},
+  selectedUserId: null,
+  selectedUserName: null,
+  setSelectedUser: () => {}
+};
+
+// Create context with default value
+export const AuthContext = createContext<{
+  currentUser: UserAuth | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (name: string, email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  selectedUserId: string | null;
+  selectedUserName: string | null;
+  setSelectedUser: (userId: string, userName: string) => void;
+}>(defaultState as any);
+
+// The Provider component that wraps your app and makes auth available
+// Get stored user from localStorage with enhanced logging
+const getStoredUser = () => {
+  try {
+    const storedUserId = localStorage.getItem('selectedUserId');
+    const storedUserName = localStorage.getItem('selectedUserName');
+
+    console.log("getStoredUser: Checking localStorage", {
+      hasStoredUserId: !!storedUserId,
+      hasStoredUserName: !!storedUserName,
+      storedUserId,
+      storedUserName
+    });
+
+    if (storedUserId && storedUserName) {
+      console.log("getStoredUser: Found stored user", { storedUserId, storedUserName });
+      return {
+        userId: storedUserId,
+        userName: storedUserName
+      };
+    }
+  } catch (error) {
+    console.error('Error accessing localStorage:', error);
+  }
+
+  console.log("getStoredUser: No stored user found, returning null values");
+  return { userId: null, userName: null };
+};
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [currentUser, setCurrentUser] = useState<UserAuth | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Get stored user data on component mount
+  const storedUser = getStoredUser();
+  console.log("AuthProvider: Retrieved stored user on mount", storedUser);
+
+  // Set selected user state with values from localStorage
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(storedUser.userId);
+  const [selectedUserName, setSelectedUserName] = useState<string | null>(storedUser.userName);
+
+  // Set up auth state listener on mount
+  useEffect(() => {
+    console.log("AuthProvider: Setting up auth state listener");
+
+    // Skip if auth is null
+    if (!auth) {
+      console.error("Auth is null, skipping auth state listener");
+      setIsLoading(false);
+      return () => {};
+    }
+
+    const unsubscribe = onAuthStateChanged(auth as Auth, (user) => {
+      console.log("AuthProvider: Auth state changed", user ? `user exists: ${user.uid}` : "no user");
+
+      if (user) {
+        setCurrentUser({
+          uid: user.uid,
+          email: user.email || "",
+          name: user.displayName || "",
+          photoURL: user.photoURL || undefined,
+        });
+      } else {
+        setCurrentUser(null);
+      }
+
+      setIsLoading(false);
+    }, (error) => {
+      console.error("AuthProvider: Auth state change error", error);
+      setIsLoading(false);
+    });
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
+  }, []);
+
+  // Login function
+  const login = async (email: string, password: string) => {
+    try {
+      if (!auth) {
+        throw new Error("Auth is not initialized");
+      }
+
+      setIsLoading(true);
+      console.log("AuthProvider: Attempting login for", email);
+      await signInWithEmailAndPassword(auth as Auth, email, password);
+      console.log("AuthProvider: Login successful");
+    } catch (error: any) {
+      console.error("AuthProvider: Login failed", error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Signup function
+  const signup = async (name: string, email: string, password: string) => {
+    try {
+      if (!auth) {
+        throw new Error("Auth is not initialized");
+      }
+
+      setIsLoading(true);
+      console.log("AuthProvider: Attempting signup for", email);
+      const { user } = await createUserWithEmailAndPassword(auth as Auth, email, password);
+
+      // Update profile with display name
+      await updateProfile(user, { displayName: name });
+
+      // Create user on backend
+      await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: user.uid, email, name, username: email }),
+      });
+
+      console.log("AuthProvider: Signup successful");
+    } catch (error: any) {
+      console.error("AuthProvider: Signup failed", error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Logout function
+  const logout = async () => {
+    try {
+      if (!auth) {
+        throw new Error("Auth is not initialized");
+      }
+
+      console.log("AuthProvider: Attempting logout");
+      await signOut(auth as Auth);
+      console.log("AuthProvider: Logout successful");
+
+      // Clear user selection from localStorage
+      localStorage.removeItem("selectedUserId");
+      localStorage.removeItem("selectedUserName");
+      localStorage.removeItem("freshLogin");
+
+      // Redirect to auth page
+      window.location.href = "/auth";
+    } catch (error: any) {
+      console.error("AuthProvider: Logout failed", error);
+      throw error;
+    }
+  };
+
+  // Function to set the selected user
+  const setSelectedUser = (userId: string, userName: string) => {
+    console.log("AuthContext: Setting selected user", { userId, userName });
+
+    // Store in localStorage for persistence
+    try {
+      localStorage.setItem('selectedUserId', userId);
+      localStorage.setItem('selectedUserName', userName);
+      // Force refresh token to ensure auth state updates
+      localStorage.setItem('freshLogin', 'true');
+    } catch (error) {
+      console.error('Error saving to localStorage:', error);
+    }
+
+    // Update state - Do this IMMEDIATELY
+    console.log("AuthContext: Before state update", {
+      selectedUserId: selectedUserId,
+      selectedUserName: selectedUserName
+    });
+
+    // Force immediate state update
+    setSelectedUserId(userId);
+    setSelectedUserName(userName);
+
+    // Verify state was updated
+    console.log("AuthContext: After user selection, new state", {
+      storedId: localStorage.getItem('selectedUserId'),
+      storedName: localStorage.getItem('selectedUserName'),
+      stateId: userId,
+      stateName: userName
+    });
+  };
+
+  const value = {
+    currentUser,
+    isAuthenticated: !!currentUser,
+    isLoading,
+    login,
+    signup,
+    logout,
+    selectedUserId,
+    selectedUserName,
+    setSelectedUser
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+// Custom hook to use the auth context
+export function useAuth() {
+  try {
+    const context = useContext(AuthContext);
+    if (!context) {
+      throw new Error("Auth context is undefined - this should never happen");
+    }
+
+    // Add a debugging log
+    if (process.env.NODE_ENV !== 'production') {
+      console.log("useAuth: Hook called with context", {
+        isAuthenticated: context.isAuthenticated,
+        isLoading: context.isLoading,
+        hasSelectedUser: !!context.selectedUserId,
+        selectedUserId: context.selectedUserId,
+        selectedUserName: context.selectedUserName
+      });
+    }
+
+    return context;
+  } catch (error) {
+    console.error("Error in useAuth hook:", error);
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+}
+
+#app.tsx
+import React, { useState, useEffect } from "react";
+import { Route, Switch, useLocation, Redirect } from "wouter";
+import { Toaster } from "@/components/ui/toaster";
+import AuthPage from "@/pages/AuthPage";
+import NotFound from "@/pages/not-found";
+import HomePage from "@/pages/HomePage";
+import ProfilePage from "@/pages/ProfilePage";
+import SettingsPage from "@/pages/SettingsPage";
+import ChatPage from "@/pages/ChatPage";
+import { AuthProvider } from "@/context/AuthContext";
+
+// Loading spinner component
+const LoadingSpinner = () => (
+  <div className="min-h-screen flex items-center justify-center">
+    <div className="w-10 h-10 border-4 border-gray-600 border-t-transparent rounded-full animate-spin"></div>
+  </div>
+);
+
+// Protected route component
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const [, navigate] = useLocation();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    // Check if user is authenticated
+    const userId = localStorage.getItem("selectedUserId");
+    const userName = localStorage.getItem("selectedUserName");
+
+    console.log("ProtectedRoute: Checking authentication", { userId, userName });
+
+    if (userId && userName) {
+      // User is authenticated with necessary info
+      setIsAuthenticated(true);
+      // Ensure freshLogin is set so future route checks pass
+      localStorage.setItem("freshLogin", "true");
+    } else {
+      // No user info, redirect to auth
+      setIsAuthenticated(false);
+      navigate("/auth");
+    }
+  }, [navigate]);
+
+  // Show loading while checking authentication
+  if (isAuthenticated === null) {
+    return <LoadingSpinner />;
+  }
+
+  // If authenticated, render children
+  return isAuthenticated ? <>{children}</> : null;
+};
+
+function App() {
+
+  return (
+    <AuthProvider>
+      <div className="h-full w-full bg-background text-foreground antialiased">
+        <Switch>
+          {/* Auth page */}
+          <Route path="/auth">
+            <AuthPage />
+          </Route>
+
+          {/* Legacy direct access route */}
+          <Route path="/direct">
+            <Redirect to="/auth" />
+          </Route>
+
+          {/* Protected routes */}
+          <Route path="/">
+            <ProtectedRoute>
+              <HomePage />
+            </ProtectedRoute>
+          </Route>
+
+          <Route path="/chat">
+            <ProtectedRoute>
+              <ChatPage />
+            </ProtectedRoute>
+          </Route>
+
+          <Route path="/profile">
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          </Route>
+
+          <Route path="/settings">
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
+          </Route>
+
+          {/* Catch-all route */}
+          <Route>
+            <NotFound />
+          </Route>
+        </Switch>
+
+        <Toaster />
+      </div>
+    </AuthProvider>
+  );
+}
+
+export default App;
+
+#firebase.ts
+// firebase.ts
+import { initializeApp, FirebaseApp } from "firebase/app";
+import { getAuth, Auth } from "firebase/auth";
+import { getFirestore, Firestore } from "firebase/firestore";
+
+// Log environment variables for debugging
+console.log("FIREBASE ENV VARS:", {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ? "Present" : "Missing",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "Missing",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID ? "Present" : "Missing",
+});
+
+if (!import.meta.env.VITE_FIREBASE_API_KEY ||
+    !import.meta.env.VITE_FIREBASE_PROJECT_ID ||
+    !import.meta.env.VITE_FIREBASE_APP_ID) {
+  console.error("Firebase configuration is incomplete! Missing required environment variables.");
+}
+
+// Firebase configuration
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.appspot.com`,
+  messagingSenderId: "466221344709",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: "G-77YGNF1VMM",
+};
+
+// Initialize Firebase
+console.log("Firebase initializing with:", {
+  apiKey: firebaseConfig.apiKey ? "***" + (typeof firebaseConfig.apiKey === 'string' ? firebaseConfig.apiKey.slice(-5) : '') : "MISSING",
+  projectId: firebaseConfig.projectId || "MISSING",
+  appId: firebaseConfig.appId ? "***" + (typeof firebaseConfig.appId === 'string' ? firebaseConfig.appId.slice(-5) : '') : "MISSING",
+});
+
+// Default values for exports
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
+
+// Clear localStorage to force login
+localStorage.removeItem("selectedUserId");
+localStorage.removeItem("selectedUserName");
+localStorage.removeItem("freshLogin");
+
+try {
+  // Initialize Firebase
+  app = initializeApp(firebaseConfig);
+
+  // Initialize Firebase services
+  auth = getAuth(app);
+  db = getFirestore(app);
+
+  console.log("Firebase app and Firestore initialized successfully!");
+} catch (error) {
+  console.error("Firebase initialization error:", error);
+  // Create fallback values to prevent crashes
+  app = null;
+  auth = null;
+  db = null;
+}
+
+export { app, auth, db };
+
+#app.py
+
+
+import os
+import json
+import secrets
+from datetime import datetime
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Import services
+from services.firebase_service import FirebaseService
+from services.openai_service import OpenAIService
+from services.geolocation_service import get_client_ip, get_user_timezone, get_current_time_in_timezone
+
+# Initialize Flask app
+app = Flask(__name__, static_folder="../client/dist")
+CORS(app)
+
+# Initialize services
+firebase = FirebaseService()
+openai = OpenAIService()
+
+# Helper function to generate unique IDs
+def generate_id():
+    return secrets.token_hex(8)
+
+# --- User routes ---
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    try:
+        data = request.json
+        if not data or not data.get('username') or not data.get('email'):
+            return jsonify({"message": "Username and email are required"}), 400
+
+        user = firebase.create_user(data)
+        return jsonify(user), 201
+    except Exception as e:
+        return jsonify({"message": str(e)}), 400
+
+# --- Chat routes ---
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    try:
+        data = request.json
+        if not data or not data.get('userId') or not data.get('userInput'):
+            return jsonify({
+                "message": "Invalid request data",
+                "error": "VALIDATION_ERROR",
+                "details": "userId and userInput are required"
+            }), 400
+
+        user_id = data['userId']
+        user_input = data['userInput']
+
+        print(f"API endpoint /api/chat called for user {user_id} with input: {user_input}")
+
+        # Get user's timezone from IP address
+        client_ip = get_client_ip(request)
+        print(f"Client IP detected: {client_ip}")
+
+        # Get timezone and format local time
+        timezone = get_user_timezone(user_id, client_ip)
+        local_time = None
+
+        if timezone:
+            local_time = get_current_time_in_timezone(timezone)
+            print(f"User's local time: {local_time['time']} on {local_time['date']} in {local_time['timezone']}")
+        else:
+            print('Could not determine user timezone, using server time')
+
+        # Pass request context to OpenAI
+        try:
+            ai_response = openai.generate_response(user_id, user_input, local_time)
+            print(f"Received response from OpenAI for user {user_id}: {ai_response[:50]}...")
+        except Exception as ai_error:
+            print(f"AI response generation error for user {user_id}: {str(ai_error)}")
+
+            # Provide more specific error messages based on the error type
+            error_message = str(ai_error)
+            if "API key" in error_message:
+                return jsonify({
+                    "message": "Authentication error with OpenAI API. Please check API key configuration.",
+                    "error": "API_KEY_ERROR",
+                    "details": error_message
+                }), 500
+            elif "ENOTFOUND" in error_message:
+                print("DNS resolution error - Cannot reach OpenAI API domain")
+                ai_response = "I apologize, but I'm having connectivity issues with my brain at the moment. Let's try that again in a bit!"
+            elif "timeout" in error_message:
+                print("Request timed out connecting to OpenAI API")
+                ai_response = "Sorry, my thinking process timed out. I'll be faster next time!"
+            else:
+                ai_response = "I'm sorry, I'm having trouble processing your request right now. Please try again in a moment."
+
+            print(f"Using fallback response due to error: {error_message}")
+
+        # Save message to storage
+        print(f"Saving message to storage for user {user_id}")
+        message = firebase.save_message({
+            "userId": user_id,
+            "userInput": user_input,
+            "aiResponse": ai_response
+        })
+        print(f"Message saved successfully with ID: {message['id']}")
+
+        # Update user profile asynchronously - using Firebase's background tasks
+        try:
+            openai.update_user_profile(user_id, user_input, ai_response)
+        except Exception as profile_error:
+            print(f"Error updating user profile for {user_id}: {str(profile_error)}")
+
+        return jsonify({"aiResponse": ai_response, "message": message})
+    except Exception as e:
+        print(f"Error processing message request: {str(e)}")
+        return jsonify({
+            "message": str(e) or "An error occurred processing your message",
+            "error": "SERVER_ERROR"
+        }), 500
+
+@app.route('/api/chat/send', methods=['POST'])
+def send_message():
+    try:
+        data = request.json
+        if not data or not data.get('userId') or not data.get('userInput'):
+            return jsonify({"message": "Invalid request data"}), 400
+
+        user_id = data['userId']
+        user_input = data['userInput']
+
+        # Get user's timezone from IP address
+        client_ip = get_client_ip(request)
+        print(f"Client IP detected: {client_ip}")
+
+        # Get timezone and format local time
+        timezone = get_user_timezone(user_id, client_ip)
+        local_time = None
+
+        if timezone:
+            local_time = get_current_time_in_timezone(timezone)
+            print(f"User's local time: {local_time['time']} on {local_time['date']} in {local_time['timezone']}")
+        else:
+            print('Could not determine user timezone, using server time')
+
+        # Generate AI response
+        try:
+            ai_response = openai.generate_response(user_id, user_input, local_time)
+        except Exception as ai_error:
+            print(f"AI response generation error: {str(ai_error)}")
+            ai_response = "I'm sorry, I'm having trouble processing your request right now. Please try again in a moment."
+
+        # Save message
+        message = firebase.save_message({
+            "userId": user_id,
+            "userInput": user_input,
+            "aiResponse": ai_response
+        })
+
+        # Update user profile asynchronously
+        try:
+            openai.update_user_profile(user_id, user_input, ai_response)
+        except Exception as profile_error:
+            print(f"Error updating user profile: {str(profile_error)}")
+
+        return jsonify({"aiResponse": ai_response, "message": message})
+    except Exception as e:
+        print(f"Error sending message: {str(e)}")
+        return jsonify({"message": str(e) or "An error occurred processing your message"}), 400
+
+@app.route('/api/messages/<user_id>', methods=['GET'])
+def get_messages(user_id):
+    try:
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        limit = request.args.get('limit', default=10, type=int)
+        messages = firebase.get_recent_messages(user_id, limit)
+        return jsonify(messages)
+    except Exception as e:
+        print(f"Error getting messages: {str(e)}")
+        return jsonify({"message": str(e) or "Failed to retrieve messages"}), 400
+
+@app.route('/api/profile/<user_id>', methods=['GET'])
+def get_profile(user_id):
+    try:
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        profile = firebase.get_user_profile(user_id)
+
+        if not profile:
+            # Create default profile
+            default_profile = {
+                "userId": user_id,
+                "shortTermInterests": [],
+                "longTermInterests": [],
+                "bio": [f"Hi, I'm {user_id}!"],
+                "traits": [],
+                "preferences": {},
+                "lastUpdated": datetime.now().isoformat()
+            }
+
+            firebase.create_user_profile(default_profile)
+
+            return jsonify({
+                "bio": {
+                    "name": user_id,
+                    "age": None,
+                    "birthday": "",
+                    "favorite_color": "",
+                    "favorite_animal": "",
+                    "interests": [],
+                    "personality_traits": []
+                }
+            })
+
+        # Format profile for response
+        formatted_profile = {
+            "bio": {
+                "name": profile.get("userId", ""),
+                "age": None,
+                "birthday": "",
+                "favorite_color": profile.get("preferences", {}).get("favorite_color", ""),
+                "favorite_animal": profile.get("preferences", {}).get("favorite_animal", ""),
+                "interests": profile.get("shortTermInterests", []),
+                "personality_traits": profile.get("traits", [])
+            },
+            "short_term_interests": profile.get("shortTermInterests", []),
+            "last_updated": profile.get("lastUpdated", datetime.now().isoformat())
+        }
+
+        return jsonify(formatted_profile)
+    except Exception as e:
+        print(f"Error getting profile: {str(e)}")
+        return jsonify({"message": str(e) or "Failed to retrieve profile"}), 400
+
+@app.route('/api/user/check', methods=['POST'])
+def check_user():
+    try:
+        data = request.json
+        username = data.get('username')
+
+        if not username:
+            return jsonify({"message": "Username is required"}), 400
+
+        # Generate userId from username (lowercase, no spaces)
+        user_id = username.strip().lower().replace(" ", "")
+
+        # Special case for SAIIM
+        is_saiim = user_id == "saiim"
+        final_user_id = "User1SAIIM" if is_saiim else user_id
+
+        print(f"Checking user profile for: {username} (userId: {final_user_id})")
+
+        # Check if the user exists
+        profile = firebase.get_user_profile(final_user_id)
+
+        if profile:
+            # Debug: log profile details
+            has_password = bool(profile.get("password"))
+            print(f"User profile found for {username}: " +
+                  f"userId: {final_user_id}, " +
+                  f"hasPassword: {has_password}, " +
+                  f"passwordPresent: {'Yes (value hidden)' if has_password else 'No'}")
+
+            # User exists - but only return basic info
+            return jsonify({
+                "exists": True,
+                "userId": final_user_id,
+                "userName": username,
+                "hasPassword": has_password
+            })
+        else:
+            # Create a new profile
+            new_profile = {
+                "userId": final_user_id,
+                "shortTermInterests": [],
+                "longTermInterests": [],
+                "bio": [],
+                "traits": [],
+                "preferences": {},
+                "lastUpdated": datetime.now().isoformat()
+            }
+
+            try:
+                firebase.create_user_profile(new_profile)
+                return jsonify({
+                    "exists": False,
+                    "userId": final_user_id,
+                    "userName": username,
+                    "hasPassword": False,
+                    "newUser": True
+                })
+            except Exception as create_error:
+                print(f"Error creating user profile: {str(create_error)}")
+                # Return default response to prevent client-side failures
+                return jsonify({
+                    "exists": False,
+                    "userId": final_user_id,
+                    "userName": username,
+                    "hasPassword": False,
+                    "newUser": True
+                })
+    except Exception as e:
+        print(f"Error checking user: {str(e)}")
+        return jsonify({"message": str(e) or "Failed to check/create user"}), 500
+
+@app.route('/api/user/login', methods=['POST'])
+def login():
+    try:
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')
+
+        if not username or not password:
+            return jsonify({
+                "success": False,
+                "message": "Username and password are required"
+            }), 400
+
+        # Generate userId from username
+        user_id = username.strip().lower().replace(" ", "")
+
+        # Special case for SAIIM
+        is_saiim = user_id == "saiim"
+        final_user_id = "User1SAIIM" if is_saiim else user_id
+
+        print(f"Attempting login for: {username} (userId: {final_user_id})")
+
+        # Get user profile
+        profile = firebase.get_user_profile(final_user_id)
+
+        if not profile:
+            print(f"Login failed: User profile not found for {username}")
+            return jsonify({
+                "success": False,
+                "message": "User not found"
+            }), 404
+
+        print(f"Found profile for {username}: " +
+              f"userId: {final_user_id}, " +
+              f"hasPassword: {bool(profile.get('password'))}, " +
+              f"passwordProvided: {bool(password)}")
+
+        # Check password
+        if not profile.get('password'):
+            # User has no password set yet
+            print(f"Login failed: User {username} has no password set")
+            return jsonify({
+                "success": False,
+                "hasPassword": False,
+                "message": "Account requires password setup"
+            }), 401
+        elif profile.get('password') == password:
+            # Password matches
+            print(f"Login successful: Password matched for {username}")
+            # Create a safe copy without password
+            safe_profile = profile.copy()
+            if 'password' in safe_profile:
+                del safe_profile['password']
+
+            return jsonify({
+                "success": True,
+                "userId": final_user_id,
+                "userName": username,
+                "profile": safe_profile
+            })
+        else:
+            # Password doesn't match
+            print(f"Login failed: Invalid password for {username}")
+            return jsonify({
+                "success": False,
+                "message": "Invalid password"
+            }), 401
+    except Exception as e:
+        print(f"Error logging in: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": str(e) or "Login failed"
+        }), 500
+
+# Serve static files from the React app
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    # If path doesn't point to an API endpoint and doesn't have a file extension
+    # it should be handled by the React app
+    if not path.startswith('api/') and '.' not in path:
+        return send_from_directory(app.static_folder, 'index.html')
+
+    # Otherwise, try to serve the file
+    try:
+        return send_from_directory(app.static_folder, path)
+    except:
+        return send_from_directory(app.static_folder, 'index.html')
+
+if __name__ == '__main__':
+    # Get port from environment variable or use 5000
+    port = int(os.environ.get('PORT', 5000))
+    # Use 0.0.0.0 to make the server accessible from outside
+    app.run(host='0.0.0.0', port=port, debug=True)
+
+#firebase_service.py
+import os
+import json
+import importlib.util
+from datetime import datetime
+
+# Check if firebase_admin is available
+firebase_available = importlib.util.find_spec("firebase_admin") is not None
+
+if firebase_available:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    print("Firebase Admin SDK imported successfully")
+else:
+    print("Firebase Admin SDK not available, using fallback implementation")
+
+class FirebaseService:
+    def __init__(self):
+        """Initialize Firebase Admin SDK with service account credentials"""
+        if firebase_available:
+            try:
+                # Check for environment variables or service account file
+                if os.environ.get('FIREBASE_SERVICE_ACCOUNT'):
+                    # Use environment variable
+                    service_account_info = json.loads(os.environ.get('FIREBASE_SERVICE_ACCOUNT'))
+                    cred = credentials.Certificate(service_account_info)
+                else:
+                    # Use local service account file
+                    print("Loading Firebase credentials from local service account file")
+                    cred = credentials.Certificate('firebase-service-account.json')
+
+                # Initialize the app
+                firebase_admin.initialize_app(cred)
+                print("Firebase Admin SDK initialized successfully with project:", cred.project_id)
+
+                # Get Firestore database
+                self.db = firestore.client()
+                print("Firestore database initialized")
+                self.using_fallback = False
+            except Exception as e:
+                print(f"Error initializing Firebase: {str(e)}")
+                # Initialize with a mock service for testing
+                if not firebase_admin._apps:
+                    firebase_admin.initialize_app()
+                self.db = firestore.client()
+                print("Firestore initialized with mock service for testing")
+                self.using_fallback = False
+        else:
+            print("Firebase Admin SDK not available, initializing fallback in-memory storage")
+            # Initialize in-memory storage
+            self.users = {}
+            self.profiles = {}
+            self.messages = []
+            self.summaries = []
+            self.using_fallback = True
+
+    def get_user(self, user_id):
+        """Get user by ID"""
+        if self.using_fallback:
+            return self.users.get(user_id)
+
+        try:
+            doc_ref = self.db.collection('users').document(user_id)
+            doc = doc_ref.get()
+
+            if doc.exists:
+                return {**doc.to_dict(), 'id': doc.id}
+            return None
+        except Exception as e:
+            print(f"Error getting user {user_id}: {str(e)}")
+            return None
+
+    def get_user_by_username(self, username):
+        """Get user by username"""
+        if self.using_fallback:
+            # Find user by username (case-insensitive) in the in-memory store
+            for user_id, user in self.users.items():
+                if user.get('username', '').lower() == username.lower():
+                    return user
+            return None
+
+        try:
+            # Query by username (case-insensitive)
+            users_ref = self.db.collection('users')
+            query = users_ref.where('username', '==', username.lower()).limit(1)
+            results = list(query.stream())
+
+            if results:
+                doc = results[0]
+                return {**doc.to_dict(), 'id': doc.id}
+            return None
+        except Exception as e:
+            print(f"Error getting user by username {username}: {str(e)}")
+            return None
+
+    def create_user(self, user_data):
+        """Create a new user"""
+        if self.using_fallback:
+            try:
+                # Ensure username is lowercase for consistent lookup
+                if 'username' in user_data:
+                    user_data['username'] = user_data['username'].lower()
+
+                # Add timestamps
+                user_data['createdAt'] = datetime.now()
+
+                # Generate user ID
+                user_id = user_data.get('id') or user_data.get('username').replace(' ', '')
+
+                # Add to in-memory store
+                user_with_id = {**user_data, 'id': user_id}
+                self.users[user_id] = user_with_id
+
+                # Return user with ID
+                return user_with_id
+            except Exception as e:
+                print(f"Error creating user in fallback store: {str(e)}")
+                raise e
+
+        try:
+            # Ensure username is lowercase for consistent lookup
+            if 'username' in user_data:
+                user_data['username'] = user_data['username'].lower()
+
+            # Add timestamps
+            user_data['createdAt'] = datetime.now()
+
+            # Set user document with ID
+            user_id = user_data.get('id') or user_data.get('username').replace(' ', '')
+            doc_ref = self.db.collection('users').document(user_id)
+            doc_ref.set(user_data)
+
+            # Return user with ID
+            return {**user_data, 'id': user_id}
+        except Exception as e:
+            print(f"Error creating user: {str(e)}")
+            raise e
+
+    def get_recent_messages(self, user_id, limit=10):
+        """Get recent messages for a user"""
+        if self.using_fallback:
+            try:
+                # Filter messages for this user
+                user_messages = [msg for msg in self.messages if msg.get('userId') == user_id]
+
+                # Sort by timestamp (newest first)
+                user_messages.sort(key=lambda x: x.get('timestamp', datetime.now()), reverse=True)
+
+                # Limit results
+                recent_messages = user_messages[:limit]
+
+                # Reverse to get chronological order (oldest first)
+                return list(reversed(recent_messages))
+            except Exception as e:
+                print(f"Error getting messages from fallback store for user {user_id}: {str(e)}")
+                return []
+
+        try:
+            # Query messages for this user
+            messages_ref = self.db.collection('messages')
+            query = messages_ref.where('userId', '==', user_id).order_by('timestamp', direction=firestore.Query.DESCENDING).limit(limit)
+            results = list(query.stream())
+
+            # Convert to list of dictionaries
+            messages = []
+            for doc in results:
+                message_data = doc.to_dict()
+                message_data['id'] = doc.id
+
+                # Convert timestamp to ISO format if it's a Firestore Timestamp
+                if isinstance(message_data.get('timestamp'), firestore.SERVER_TIMESTAMP):
+                    message_data['timestamp'] = message_data['timestamp'].isoformat()
+
+                messages.append(message_data)
+
+            # Reverse to get chronological order (oldest first)
+            return list(reversed(messages))
+        except Exception as e:
+            print(f"Error getting messages for user {user_id}: {str(e)}")
+            return []
+
+    def save_message(self, message_data):
+        """Save a new message"""
+        if self.using_fallback:
+            try:
+                # Add timestamp if not provided
+                if 'timestamp' not in message_data:
+                    message_data['timestamp'] = datetime.now()
+
+                # Generate a unique ID
+                message_id = str(len(self.messages) + 1)
+
+                # Add ID to message data
+                message_with_id = {**message_data, 'id': message_id}
+
+                # Add to in-memory messages list
+                self.messages.append(message_with_id)
+
+                # Return message with ID
+                return message_with_id
+            except Exception as e:
+                print(f"Error saving message to fallback store: {str(e)}")
+                raise e
+
+        try:
+            # Add timestamp if not provided
+            if 'timestamp' not in message_data:
+                message_data['timestamp'] = datetime.now()
+
+            # Add to messages collection
+            doc_ref = self.db.collection('messages').document()
+            doc_ref.set(message_data)
+
+            # Return message with ID
+            return {**message_data, 'id': doc_ref.id}
+        except Exception as e:
+            print(f"Error saving message: {str(e)}")
+            raise e
+
+    def get_user_profile(self, user_id):
+        """Get user profile"""
+        if self.using_fallback:
+            # Get profile from in-memory store
+            return self.profiles.get(user_id)
+
+        try:
+            doc_ref = self.db.collection('profiles').document(user_id)
+            doc = doc_ref.get()
+
+            if doc.exists:
+                profile_data = doc.to_dict()
+                # Ensure profile has userId field that matches document ID
+                profile_data['userId'] = doc.id
+                return profile_data
+            return None
+        except Exception as e:
+            print(f"Error getting profile for user {user_id}: {str(e)}")
+            return None
+
+    def create_user_profile(self, profile_data):
+        """Create a new user profile"""
+        if self.using_fallback:
+            try:
+                # Use userId as document ID
+                user_id = profile_data.get('userId')
+                if not user_id:
+                    raise ValueError("Profile data must include userId")
+
+                # Add lastUpdated timestamp if not provided
+                if 'lastUpdated' not in profile_data:
+                    profile_data['lastUpdated'] = datetime.now()
+
+                # Store in memory
+                self.profiles[user_id] = profile_data
+
+                return profile_data
+            except Exception as e:
+                print(f"Error creating profile in fallback store: {str(e)}")
+                raise e
+
+        try:
+            # Use userId as document ID
+            user_id = profile_data.get('userId')
+            if not user_id:
+                raise ValueError("Profile data must include userId")
+
+            # Add lastUpdated timestamp if not provided
+            if 'lastUpdated' not in profile_data:
+                profile_data['lastUpdated'] = datetime.now()
+
+            # Set profile document
+            doc_ref = self.db.collection('profiles').document(user_id)
+            doc_ref.set(profile_data)
+
+            return profile_data
+        except Exception as e:
+            print(f"Error creating profile: {str(e)}")
+            raise e
+
+    def update_user_profile(self, profile_data):
+        """Update an existing user profile"""
+        if self.using_fallback:
+            try:
+                # Use userId as document ID
+                user_id = profile_data.get('userId')
+                if not user_id:
+                    raise ValueError("Profile data must include userId")
+
+                # Update lastUpdated timestamp
+                profile_data['lastUpdated'] = datetime.now()
+
+                # Check if profile exists
+                if user_id not in self.profiles:
+                    raise ValueError(f"Profile for user {user_id} does not exist")
+
+                # Update in-memory profile
+                existing_profile = self.profiles[user_id]
+                updated_profile = {**existing_profile, **profile_data}
+                self.profiles[user_id] = updated_profile
+
+                return updated_profile
+            except Exception as e:
+                print(f"Error updating profile in fallback store: {str(e)}")
+                raise e
+
+        try:
+            # Use userId as document ID
+            user_id = profile_data.get('userId')
+            if not user_id:
+                raise ValueError("Profile data must include userId")
+
+            # Update lastUpdated timestamp
+            profile_data['lastUpdated'] = datetime.now()
+
+            # Update profile document
+            doc_ref = self.db.collection('profiles').document(user_id)
+            doc_ref.update(profile_data)
+
+            return profile_data
+        except Exception as e:
+            print(f"Error updating profile: {str(e)}")
+            raise e
+
+    def get_message_count(self, user_id):
+        """Get count of messages for a user"""
+        if self.using_fallback:
+            try:
+                # Count messages for this user in the in-memory store
+                count = sum(1 for msg in self.messages if msg.get('userId') == user_id)
+                return count
+            except Exception as e:
+                print(f"Error getting message count from fallback store for user {user_id}: {str(e)}")
+                return 0
+
+        try:
+            messages_ref = self.db.collection('messages')
+            query = messages_ref.where('userId', '==', user_id)
+            count = len(list(query.stream()))
+            return count
+        except Exception as e:
+            print(f"Error getting message count for user {user_id}: {str(e)}")
+            return 0
+
+    def create_conversation_summary(self, summary_data):
+        """Create a conversation summary"""
+        if self.using_fallback:
+            try:
+                # Add timestamp if not provided
+                if 'timestamp' not in summary_data:
+                    summary_data['timestamp'] = datetime.now()
+
+                # Generate a unique ID
+                summary_id = str(len(self.summaries) + 1)
+
+                # Add ID to summary data
+                summary_with_id = {**summary_data, 'id': summary_id}
+
+                # Add to in-memory summaries list
+                self.summaries.append(summary_with_id)
+
+                # Return summary with ID
+                return summary_with_id
+            except Exception as e:
+                print(f"Error creating conversation summary in fallback store: {str(e)}")
+                raise e
+
+        try:
+            # Add timestamp if not provided
+            if 'timestamp' not in summary_data:
+                summary_data['timestamp'] = datetime.now()
+
+            # Add to summaries collection
+            doc_ref = self.db.collection('summaries').document()
+            doc_ref.set(summary_data)
+
+            return {**summary_data, 'id': doc_ref.id}
+        except Exception as e:
+            print(f"Error creating conversation summary: {str(e)}")
+            raise e
+
+    def get_conversation_summaries(self, user_id, limit=5):
+        """Get conversation summaries for a user"""
+        if self.using_fallback:
+            try:
+                # Filter summaries for this user
+                user_summaries = [s for s in self.summaries if s.get('userId') == user_id]
+
+                # Sort by timestamp (newest first)
+                user_summaries.sort(key=lambda x: x.get('timestamp', datetime.now()), reverse=True)
+
+                # Limit results
+                return user_summaries[:limit]
+            except Exception as e:
+                print(f"Error getting conversation summaries from fallback store for user {user_id}: {str(e)}")
+                return []
+
+        try:
+            # Query summaries for this user
+            summaries_ref = self.db.collection('summaries')
+            query = summaries_ref.where('userId', '==', user_id).order_by('timestamp', direction=firestore.Query.DESCENDING).limit(limit)
+            results = list(query.stream())
+
+            # Convert to list of dictionaries
+            summaries = []
+            for doc in results:
+                summary_data = doc.to_dict()
+                summary_data['id'] = doc.id
+
+                # Convert timestamp to ISO format if it's a Firestore Timestamp
+                if isinstance(summary_data.get('timestamp'), firestore.SERVER_TIMESTAMP):
+                    summary_data['timestamp'] = summary_data['timestamp'].isoformat()
+
+                summaries.append(summary_data)
+
+            return summaries
+        except Exception as e:
+            print(f"Error getting conversation summaries for user {user_id}: {str(e)}")
+            return []
+
+#Authpage.tsx
+
+import React, { useState } from "react";
+import { useLocation } from "wouter";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "../context/AuthContext";
+
+// Define schemas for login and registration forms
+const loginSchema = z.object({
+  email: z.string().email({ message: "Invalid email address" }),
+  password: z.string().min(6, { message: "Password must be at least 6 characters" }),
+});
+
+const registerSchema = z.object({
+  name: z.string().min(3, { message: "Name must be at least 3 characters" }),
+  email: z.string().email({ message: "Invalid email address" }),
+  password: z.string()
+    .min(6, { message: "Password must be at least 6 characters" })
+    .max(50, { message: "Password must not exceed 50 characters" })
+    .regex(/[A-Za-z]/, { message: "Password must contain at least one letter" })
+    .regex(/[0-9]/, { message: "Password must contain at least one number" }),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
+type LoginFormValues = z.infer<typeof loginSchema>;
+type RegisterFormValues = z.infer<typeof registerSchema>;
+
+export default function AuthPage() {
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("login");
+  const [, navigate] = useLocation();
+  const { login, signup } = useAuth();
+
+  // Login form
+  const loginForm = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
+  // Register form
+  const registerForm = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
+
+  // Handle login form submission
+  const onLoginSubmit = async (data: LoginFormValues) => {
+    try {
+      setIsLoading(true);
+      await login(data.email, data.password);
+      toast({
+        title: "Login successful",
+        description: "Welcome back!",
+      });
+      navigate("/");
+    } catch (error: any) {
+      console.error("Login error:", error);
+      setIsLoading(false);
+      if (error.code === "auth/invalid-credential") {
+        loginForm.setError("email", {
+          type: "manual",
+          message: "No account found or wrong password",
+        });
+        setActiveTab("register");
+        registerForm.setValue("email", data.email);
+        toast({
+          title: "No account found",
+          description: "Let's sign up with that email!",
+        });
+      } else {
+        loginForm.setError("password", {
+          type: "manual",
+          message: error.message || "Login failed",
+        });
+        toast({
+          title: "Login failed",
+          description: error.message || "Please check your credentials",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  // Handle registration form submission
+  const onRegisterSubmit = async (data: RegisterFormValues) => {
+    try {
+      setIsLoading(true);
+      await signup(data.name, data.email, data.password);
+      toast({
+        title: "Account Created",
+        description: "Welcome to FAMILIAR!",
+      });
+      navigate("/");
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      setIsLoading(false);
+      registerForm.setError("email", {
+        type: "manual",
+        message: error.message || "Email already in use",
+      });
+      toast({
+        title: "Registration failed",
+        description: error.message || "Please try again",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 p-4">
+      <Card className="w-full max-w-md shadow-lg">
+        <CardHeader className="space-y-1 text-center">
+          <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-600 to-gray-800">
+            Familiar AI
+          </CardTitle>
+          <CardDescription className="text-lg text-gray-600">
+            Introducing Magic the Toy
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          <Tabs defaultValue="login" value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-2 mb-6">
+              <TabsTrigger value="login">Login</TabsTrigger>
+              <TabsTrigger value="register">Register</TabsTrigger>
+            </TabsList>
+
+            {/* Login Form */}
+            <TabsContent value="login">
+              <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="login-email">Email</Label>
+                  <Input
+                    id="login-email"
+                    type="email"
+                    placeholder="Enter your email"
+                    {...loginForm.register("email")}
+                  />
+                  {loginForm.formState.errors.email && (
+                    <p className="text-sm text-red-500">
+                      {loginForm.formState.errors.email.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="login-password">Password</Label>
+                  <Input
+                    id="login-password"
+                    type="password"
+                    placeholder="Enter your password"
+                    {...loginForm.register("password")}
+                  />
+                  {loginForm.formState.errors.password && (
+                    <p className="text-sm text-red-500">
+                      {loginForm.formState.errors.password.message}
+                    </p>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Logging in...
+                    </>
+                  ) : (
+                    "Login"
+                  )}
+                </Button>
+              </form>
+
+              <div className="mt-4 text-center">
+                <span className="text-sm text-gray-500">
+                  Don't have an account?{" "}
+                </span>
+                <button
+                  type="button"
+                  className="text-sm text-primary underline"
+                  onClick={() => setActiveTab("register")}
+                >
+                  Register here
+                </button>
+              </div>
+            </TabsContent>
+
+            {/* Register Form */}
+            <TabsContent value="register">
+              <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="register-name">Name</Label>
+                  <Input
+                    id="register-name"
+                    placeholder="Choose a name"
+                    {...registerForm.register("name")}
+                  />
+                  {registerForm.formState.errors.name && (
+                    <p className="text-sm text-red-500">
+                      {registerForm.formState.errors.name.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="register-email">Email</Label>
+                  <Input
+                    id="register-email"
+                    type="email"
+                    placeholder="Enter your email"
+                    {...registerForm.register("email")}
+                  />
+                  {registerForm.formState.errors.email && (
+                    <p className="text-sm text-red-500">
+                      {registerForm.formState.errors.email.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="register-password">Password</Label>
+                  <Input
+                    id="register-password"
+                    type="password"
+                    placeholder="Create a password"
+                    {...registerForm.register("password")}
+                  />
+                  {registerForm.formState.errors.password && (
+                    <p className="text-sm text-red-500">
+                      {registerForm.formState.errors.password.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-password">Confirm Password</Label>
+                  <Input
+                    id="confirm-password"
+                    type="password"
+                    placeholder="Confirm your password"
+                    {...registerForm.register("confirmPassword")}
+                  />
+                  {registerForm.formState.errors.confirmPassword && (
+                    <p className="text-sm text-red-500">
+                      {registerForm.formState.errors.confirmPassword.message}
+                    </p>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Registering...
+                    </>
+                  ) : (
+                    "Register"
+                  )}
+                </Button>
+              </form>
+
+              <div className="mt-4 text-center">
+                <span className="text-sm text-gray-500">
+                  Already have an account?{" "}
+                </span>
+                <button
+                  type="button"
+                  className="text-sm text-primary underline"
+                  onClick={() => setActiveTab("login")}
+                >
+                  Login here
+                </button>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+
+        <CardFooter className="flex flex-col text-center text-xs text-gray-500">
+          <p>Magic: The AI toy for kids that makes learning fun!</p>
+          <p className="mt-1">© 2025 FAMILIAR AI</p>
+        </CardFooter>
+      </Card>
+    </div>
+  );
+}
+
+#chatinterface.tsx
+import { useState, useRef, useEffect } from "react";
+import { useAuth } from "../context/AuthContext";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { sendMessageToLlama, fetchRecentMessages } from "../lib/llama";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
+import { ChatMessage } from "@shared/types";
+
+export default function ChatInterface() {
+  const { currentUser, selectedUserId, selectedUserName } = useAuth();
+
+  // Log the current auth state for debugging
+  console.log("ChatInterface: Auth state check:", {
+    currentUser: currentUser?.uid || "no-current-user",
+    selectedUserId: selectedUserId || "no-selected-user",
+    selectedUserName: selectedUserName || "no-selected-name",
+    storedId: localStorage.getItem("selectedUserId"),
+    storedName: localStorage.getItem("selectedUserName")
+  });
+
+  // PRIORITY: Use the selected user ID from context, never default to "default-user"
+  const userId = selectedUserId || localStorage.getItem("selectedUserId") || "unknown-user";
+  const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Add profile state
+  const [profile, setProfile] = useState<any>(null);
+
+  // Fetch profile data when userId changes
+  useEffect(() => {
+    if (userId) {
+      // For now, this will log errors since we don't have the backend yet
+      fetch(`/api/profile/${userId}`)
+        .then((res) => res.json())
+        .then((data) => setProfile(data.bio))
+        .catch((err) => console.error('Profile fetch error:', err));
+    }
+  }, [userId]);
+
+  // Query to fetch recent messages
+  const {
+    data: messages,
+    isLoading: isMessagesLoading,
+    isError: isMessagesError,
+    refetch: refetchMessages
+  } = useQuery({
+    queryKey: ['/api/chat/messages', userId],
+    queryFn: () => fetchRecentMessages(userId, 50),
+    enabled: !!userId,
+    retry: 3,
+    refetchOnWindowFocus: false,
+    staleTime: 10000
+  });
+
+  // Auto-introduction for new users
+  useEffect(() => {
+    // Check if user is loaded and if this is a new chat (no messages)
+    if (userId && messages && messages.length === 0 && !isMessagesLoading && !isMessagesError) {
+      // This appears to be a first-time user, let's send an automatic introduction message
+      console.log("First time user detected. Sending auto-introduction message.");
+
+      // Simulate user sending an initial greeting to trigger Magic's introduction
+      setTimeout(() => {
+        const introMessage = "Hi Magic!";
+        setMessage(introMessage);
+        // We create a delayed call to handleSendMessage using a fake event
+        setTimeout(() => {
+          const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+          handleSendMessage(fakeEvent);
+        }, 500);
+      }, 1000);
+    }
+  }, [userId, messages, isMessagesLoading, isMessagesError]);
+
+  // Handle message loading errors
+  useEffect(() => {
+    if (isMessagesError) {
+      console.error('Error in messages query');
+      toast({
+        title: "Connection Issue",
+        description: "Having trouble loading messages. We'll keep trying.",
+        variant: "destructive",
+      });
+
+      // Set a timer to retry
+      const timer = setTimeout(() => {
+        refetchMessages();
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isMessagesError, refetchMessages, toast]);
+
+  // Mutation to send message
+  const sendMessageMutation = useMutation({
+    mutationFn: async (message: string) => {
+      return sendMessageToLlama(userId, message);
+    },
+    onSuccess: () => {
+      // Invalidate messages query to refetch with new message
+      queryClient.invalidateQueries({ queryKey: ['/api/chat/messages', userId] });
+    },
+    onError: (error: any) => {
+      console.error('Error sending message:', error.message);
+
+      // Show different error messages based on the error type
+      if (error.message && error.message.includes('API key')) {
+        toast({
+          title: "API Configuration Issue",
+          description: "API key issue—please contact support.",
+          variant: "destructive",
+        });
+      } else if (error.message && error.message.includes('fetch')) {
+        toast({
+          title: "Connection Issue",
+          description: "Failed to connect to the AI service. Retrying...",
+          variant: "destructive",
+        });
+        // Retry after a delay
+        setTimeout(() => refetchMessages(), 3000);
+      } else {
+        toast({
+          title: "Message Failed",
+          description: "Couldn't send your message. We'll try again.",
+          variant: "destructive",
+        });
+        // Try to refetch messages to ensure UI is in sync
+        refetchMessages();
+      }
+    },
+  });
+
+  // Handle sending messages
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!message.trim() || isLoading) return;
+
+    const trimmedMessage = message.trim();
+    const messageTime = new Date();
+    setMessage("");
+    setIsLoading(true);
+
+    // Generate a temporary id for optimistic update
+    const tempId = `temp-${Date.now()}`;
+
+    // Create an optimistic update with the user's message
+    const tempMessage: ChatMessage = {
+      id: tempId,
+      userInput: trimmedMessage,
+      aiResponse: "",
+      timestamp: messageTime,
+      isLoading: true,
+    };
+
+    // Store the current messages state for rollback if needed
+    const previousMessages = queryClient.getQueryData(['/api/chat/messages', userId]) as ChatMessage[] || [];
+
+    // Update the messages with the optimistic update
+    queryClient.setQueryData(['/api/chat/messages', userId], (old: ChatMessage[] = []) => [...old, tempMessage]);
+
+    let retryCount = 0;
+    const maxRetries = 2;
+    let success = false;
+
+    while (retryCount <= maxRetries && !success) {
+      try {
+        // Send the message to the AI
+        await sendMessageMutation.mutateAsync(trimmedMessage);
+        success = true;
+      } catch (error) {
+        retryCount++;
+        console.error(`Error sending message (attempt ${retryCount}):`, error);
+
+        if (retryCount > maxRetries) {
+          // If all retries failed, show error and restore previous state
+          toast({
+            title: "Message Failed",
+            description: "Couldn't send your message after multiple attempts. Please try again later.",
+            variant: "destructive",
+          });
+
+          // Remove the failed temporary message
+          queryClient.setQueryData(['/api/chat/messages', userId], previousMessages);
+        } else {
+          // Show retry toast
+          toast({
+            title: "Retrying...",
+            description: `Having trouble connecting. Attempt ${retryCount} of ${maxRetries+1}`,
+            variant: "default",
+          });
+
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+
+    setIsLoading(false);
+  };
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [message]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
+  // Format timestamp
+  const formatTimestamp = (timestamp: Date | string) => {
+    return format(new Date(timestamp), "h:mm a");
+  };
+
+  return (
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-neutral-50">
+      {/* Chat Messages */}
+      <div className="flex-1 p-4 overflow-y-auto custom-scrollbar">
+        <div className="max-w-3xl mx-auto space-y-6">
+          {isMessagesLoading ? (
+            <div className="flex items-center justify-center h-full pt-10">
+              <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ) : messages && messages.length > 0 ? (
+            messages.map((message: ChatMessage, index: number) => (
+              <div key={message.id || index} className="space-y-6">
+                {/* User Message */}
+                <div className="flex justify-end mb-6 slide-up">
+                  <div className="flex flex-col items-end max-w-[85%] md:max-w-[75%]">
+                    <div className="bg-primary text-white rounded-2xl rounded-tr-none p-4 shadow-sm">
+                      <p className="text-base">{message.userInput}</p>
+                    </div>
+                    <span className="text-xs text-neutral-500 mt-1">
+                      {formatTimestamp(message.timestamp)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* AI Response */}
+                <div className="flex mb-6 slide-up">
+                  <div className="flex flex-col max-w-[85%] md:max-w-[75%]">
+                    <div className="inline-flex items-center space-x-2 mb-2">
+                      <div className="w-9 h-9 bg-gradient-to-br from-primary-light to-primary rounded-full flex items-center justify-center">
+                        <i className="ri-robot-line text-white text-sm"></i>
+                      </div>
+                      <span className="font-medium text-lg text-neutral-800">Magic</span>
+                    </div>
+                    {message.isLoading ? (
+                      <div className="bg-white rounded-2xl rounded-tl-none p-4 shadow-sm">
+                        <div className="flex space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-primary-light opacity-75 animate-pulse"></div>
+                          <div className="w-3 h-3 rounded-full bg-primary-light opacity-75 animate-pulse delay-150"></div>
+                          <div className="w-3 h-3 rounded-full bg-primary-light opacity-75 animate-pulse delay-300"></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-2xl rounded-tl-none p-4 shadow-sm">
+                        <p className="text-neutral-800 text-base whitespace-pre-wrap">{message.aiResponse}</p>
+                      </div>
+                    )}
+                    <span className="text-xs text-neutral-500 mt-1">
+                      {formatTimestamp(message.timestamp)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="flex flex-col items-center justify-center h-80 py-10">
+              <div className="w-16 h-16 bg-gradient-to-br from-primary-light to-primary rounded-full flex items-center justify-center mb-4">
+                <i className="ri-robot-line text-white text-xl"></i>
+              </div>
+              <h2 className="text-xl font-semibold text-neutral-800 mb-2">Welcome to Magic the Toy</h2>
+              <div className="bg-white rounded-2xl p-4 shadow-sm max-w-md text-center mt-4">
+                <p className="text-neutral-800 mb-2">
+                  Hello {selectedUserName || 'there'}! I'm Magic, your AI toy friend! I'm so excited to talk, play, and learn with you today!
+                </p>
+                <p className="text-neutral-600 text-sm">
+                  We can play fun games, tell stories, solve puzzles, or talk about anything you're curious about!
+                </p>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef}></div>
+        </div>
+      </div>
+
+      {/* Chat Input */}
+      <div className="bg-white border-t border-neutral-200 p-4 sticky bottom-0">
+        <div className="max-w-3xl mx-auto">
+          <form onSubmit={handleSendMessage} className="flex items-end gap-3">
+            <div className="flex-1 relative">
+              <Textarea
+                ref={textareaRef}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Type a message..."
+                className="w-full p-4 pr-12 rounded-xl resize-none border-2 border-neutral-200 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none min-h-[58px] max-h-[200px] overflow-y-auto shadow-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage(e);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="absolute right-3 bottom-3 p-2 text-neutral-400 hover:text-neutral-600 transition-colors"
+              >
+                <i className="ri-emotion-line text-xl"></i>
+              </button>
+            </div>
+            <Button
+              type="submit"
+              disabled={isLoading || !message.trim()}
+              className="p-4 bg-gradient-to-r from-primary to-primary-dark rounded-full text-white hover:opacity-90 transition-colors flex-shrink-0 shadow-md h-[58px] w-[58px]"
+            >
+              <i className="ri-send-plane-fill text-lg"></i>
+            </Button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+#chatpage.tsx
+import React from "react";
+import { Link } from "wouter";
+import { ArrowLeft, LogOut } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import ChatInterface from "@/components/ChatInterface";
+import { useAuth } from "@/context/AuthContext";
+
+export default function ChatPage() {
+  const { logout } = useAuth();
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Sticky Header */}
+      <header className="py-4 px-6 border-b flex justify-between items-center sticky top-0 bg-background z-50 shadow-sm">
+        <div className="flex items-center">
+          <Button variant="ghost" size="icon" asChild className="mr-4">
+            <Link href="/">
+              <ArrowLeft className="h-5 w-5" />
+              <span className="sr-only">Back to Home</span>
+            </Link>
+          </Button>
+          <h1 className="text-2xl font-bold">Magic the Toy - Chat</h1>
+        </div>
+        {/* Logout Button */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={logout}
+          className="flex items-center gap-1"
+        >
+          <LogOut className="h-4 w-4 mr-1" />
+          Logout
+        </Button>
+      </header>
+
+      {/* Main content */}
+      <main className="flex-1 flex flex-col">
+        <ChatInterface />
+      </main>
+
+      {/* Footer */}
+      <footer className="py-4 px-6 border-t text-center text-sm text-muted-foreground">
+        <p>Created by Olamide Oladimeji</p>
+      </footer>
+    </div>
+  );
+}
