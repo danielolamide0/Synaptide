@@ -101,37 +101,72 @@ export class FirebaseStorage implements IStorage {
       // Format the message in the structure expected for the chat
       const now = new Date();
       let messageData: any;
+      let docRef;
       
+      // If this is a user message, create a new document for the user message
       if (insertMessage.role === 'user') {
-        // User message only has user_input field
+        // Store user input in a new document
         messageData = {
           user_input: insertMessage.content,
           timestamp: now,
-          version: 1
+          version: 1,
+          // Store the most recent message ID to help with pairing user/AI messages
+          last_message_id: '' 
         };
-      } else if (insertMessage.role === 'assistant') {
-        // AI message needs both fields
-        // Note: For our structure, we should have the user message create the document
-        // and the AI message update it, but for now we'll support both
-        messageData = {
-          user_input: "",  // This would normally be filled with the user's input
-          ai_response: insertMessage.content,
-          timestamp: now,
-          version: 1
-        };
+        
+        // Add to Firestore
+        docRef = await addDoc(messagesCollection, messageData);
+        console.log(`Created user message with ID: ${docRef.id}`);
+      } 
+      // If this is an AI message, find the most recent user message and add the AI response to it
+      else if (insertMessage.role === 'assistant') {
+        // Query for the most recent user message
+        const q = query(
+          messagesCollection, 
+          orderBy('timestamp', 'desc'),
+          // Where user_input exists and ai_response doesn't exist or is empty
+          where('user_input', '!=', '')
+        );
+        
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          // Get the most recent user message to update
+          const userMessageDoc = querySnapshot.docs[0];
+          const userMessageRef = userMessageDoc.ref;
+          
+          // Update it with the AI response
+          await updateDoc(userMessageRef, {
+            ai_response: insertMessage.content
+          });
+          
+          docRef = userMessageDoc;
+          console.log(`Updated message ${docRef.id} with AI response`);
+        } else {
+          // If no user message found, create a new document with AI response only
+          messageData = {
+            ai_response: insertMessage.content,
+            timestamp: now,
+            version: 1
+          };
+          
+          // Add to Firestore
+          docRef = await addDoc(messagesCollection, messageData);
+          console.log(`Created AI-only message with ID: ${docRef.id}`);
+        }
       } else {
-        // Other message types (system, etc) - just store content
+        // Other message types (system, etc) - store content and role
         messageData = {
           content: insertMessage.content,
           role: insertMessage.role,
           timestamp: now,
           version: 1
         };
+        
+        // Add to Firestore
+        docRef = await addDoc(messagesCollection, messageData);
+        console.log(`Created ${insertMessage.role} message with ID: ${docRef.id}`);
       }
-      
-      // Add to Firestore
-      const docRef = await addDoc(messagesCollection, messageData);
-      console.log(`Created message with ID: ${docRef.id}`);
       
       // Return the newly created message in our expected format
       return {
@@ -164,9 +199,11 @@ export class FirebaseStorage implements IStorage {
       
       querySnapshot.forEach((doc) => {
         const data = doc.data();
+        console.log(`Processing message doc:`, JSON.stringify(data));
         
-        // Process user message
-        if (data.user_input && !data.ai_response) {
+        // Process both user inputs and AI responses from the same document
+        // The old data structure stores both in a single document
+        if (data.user_input) {
           messages.push({
             id: doc.id,
             userId,
@@ -175,23 +212,34 @@ export class FirebaseStorage implements IStorage {
             timestamp: data.timestamp instanceof Timestamp ? 
               data.timestamp.toDate() : new Date(data.timestamp)
           });
-        }
-        
-        // Process AI message
-        if (data.ai_response) {
+          
+          // If this document also has an AI response, add it as a separate message
+          if (data.ai_response) {
+            messages.push({
+              id: `${doc.id}_ai`,
+              userId,
+              role: 'assistant',
+              content: data.ai_response,
+              timestamp: data.timestamp instanceof Timestamp ? 
+                new Date(data.timestamp.toDate().getTime() + 1000) : // add 1 second to ensure it comes after user message
+                new Date(new Date(data.timestamp).getTime() + 1000)
+            });
+          }
+        } 
+        // Process messages that only have AI response (shouldn't happen in new structure)
+        else if (data.ai_response && !data.user_input) {
           messages.push({
-            id: `${doc.id}_ai`,
+            id: `${doc.id}_ai_only`,
             userId,
             role: 'assistant',
             content: data.ai_response,
             timestamp: data.timestamp instanceof Timestamp ? 
-              new Date(data.timestamp.toDate().getTime() + 1000) : // add 1 second to ensure it comes after user message
-              new Date(new Date(data.timestamp).getTime() + 1000)
+              data.timestamp.toDate() : new Date(data.timestamp)
           });
         }
         
-        // Process other message types
-        if (data.role && data.content) {
+        // Process other message types (system, etc)
+        else if (data.role && data.content) {
           messages.push({
             id: doc.id,
             userId,
