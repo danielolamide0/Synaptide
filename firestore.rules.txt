@@ -1,9 +1,23 @@
-// Firestore Rules for Synaptide
+// Firestore Rules for Synaptide - Updated for multi-user functionality
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow public read/write access to messages and userProfile collections
+    // Allow access to all collections and subcollections for development
+    match /{document=**} {
+      allow read, write;
+    }
+    
+    // Specific rules for our main collections
+    match /users/{userId} {
+      allow read, write;
+      
+      // Allow access to user-specific message subcollections
+      match /messages/{messageId} {
+        allow read, write;
+      }
+    }
+    
     match /messages/{document=**} {
       allow read, write;
     }
@@ -15,14 +29,15 @@ service cloud.firestore {
 }
 
 /*
-Note: These rules allow public access without authentication.
-For a production application, you would want to implement proper
-authentication and more restrictive rules. These rules are
-suitable for development purposes only.
+IMPORTANT: To fix the permissions error, you must apply these updated rules:
 
-To apply these rules:
-1. Go to Firebase Console
-2. Navigate to Firestore Database
-3. Click on the "Rules" tab
-4. Paste these rules and click "Publish"
+1. Go to Firebase Console: https://console.firebase.google.com/
+2. Select your project
+3. Navigate to Firestore Database
+4. Click on the "Rules" tab
+5. Replace the existing rules with these rules
+6. Click "Publish"
+
+These permissive rules are for development only. For production,
+you would implement proper authentication and more restrictive rules.
 */
