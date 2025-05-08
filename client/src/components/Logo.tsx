@@ -15,22 +15,32 @@ const Logo: React.FC<LogoProps> = ({ size = "md", className = "" }) => {
   return (
     <div className={`${sizeClasses[size]} ${className}`}>
       <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-        {/* Simple brain sketch with clean lines */}
-        <g fill="none" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round">
-          {/* Left hemisphere */}
-          <path d="M60,70 C50,55 60,45 70,40 C80,35 95,40 100,50" />
-          <path d="M60,70 C55,85 60,100 70,110" />
-          <path d="M70,110 C60,125 65,145 75,155 C85,165 95,160 100,155" />
+        {/* Simple, unmistakable brain sketch */}
+        <g fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round">
+          {/* Brain outline */}
+          <path d="M65,75 C55,60 60,45 75,40 C85,35 100,45 100,50" />
+          <path d="M135,75 C145,60 140,45 125,40 C115,35 100,45 100,50" />
           
-          {/* Right hemisphere */}
-          <path d="M140,70 C150,55 140,45 130,40 C120,35 105,40 100,50" />
-          <path d="M140,70 C145,85 140,100 130,110" />
-          <path d="M130,110 C140,125 135,145 125,155 C115,165 105,160 100,155" />
+          {/* Bottom curve */}
+          <path d="M65,75 C55,100 55,130 70,150 C85,165 95,160 100,155" />
+          <path d="M135,75 C145,100 145,130 130,150 C115,165 105,160 100,155" />
           
-          {/* Connecting lines */}
-          <path d="M75,55 C85,60 95,58 100,55 C105,58 115,60 125,55" />
-          <path d="M70,90 C80,95 90,93 100,90 C110,93 120,95 130,90" />
-          <path d="M70,130 C80,135 90,133 100,130 C110,133 120,135 130,130" />
+          {/* Brain folds - left side */}
+          <path d="M65,75 C75,85 85,75 90,70" />
+          <path d="M60,100 C70,110 80,100 85,95" />
+          <path d="M65,125 C75,135 85,125 90,120" />
+          
+          {/* Brain folds - right side */}
+          <path d="M135,75 C125,85 115,75 110,70" />
+          <path d="M140,100 C130,110 120,100 115,95" />
+          <path d="M135,125 C125,135 115,125 110,120" />
+
+          {/* Cerebellum */}
+          <path d="M80,150 C90,155 95,155 100,155" />
+          <path d="M120,150 C110,155 105,155 100,155" />
+          
+          {/* Stem */}
+          <path d="M100,155 L100,165" />
         </g>
       </svg>
     </div>
