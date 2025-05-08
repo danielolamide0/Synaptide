@@ -24,16 +24,17 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Collection references
+// Collection references - using flat structure to maintain compatibility with existing rules
 const usersCollection = collection(db, "users");
 const messagesCollection = collection(db, "messages");
 const userProfileCollection = collection(db, "userProfile");
 
 export { db, usersCollection, messagesCollection, userProfileCollection };
 
-// Get user-specific messages collection reference
+// Get user-specific messages - use the main messages collection with a userId field
+// This approach works with the existing permissions
 export const getUserMessagesCollection = (userId: string) => {
-  return collection(db, `users/${userId}/messages`);
+  return messagesCollection; // Return the main messages collection
 };
 
 // Helper functions for data conversion
