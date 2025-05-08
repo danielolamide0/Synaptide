@@ -4,8 +4,8 @@ import Logo from '@/components/Logo';
 import ThemeToggle from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
-import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
+import { useChat } from '@/contexts/ChatContext';
 
 const Home: React.FC = () => {
   const [, navigate] = useLocation();
@@ -14,6 +14,8 @@ const Home: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const { toast } = useToast();
   
+  const { loadOrCreateUser } = useChat();
+
   const handleStartChat = async () => {
     if (!userName.trim()) {
       setErrorMessage('Please enter your name');
@@ -24,21 +26,8 @@ const Home: React.FC = () => {
     setErrorMessage('');
     
     try {
-      // Create or get the user
-      const response = await apiRequest({
-        url: '/api/users',
-        method: 'POST',
-        body: { name: userName }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to create user: ${response.statusText}`);
-      }
-      
-      const user = await response.json();
-      
-      // Store user information in localStorage for persistence
-      localStorage.setItem('synaptideUser', JSON.stringify(user));
+      // Use the ChatContext's loadOrCreateUser function
+      await loadOrCreateUser(userName);
       
       // Navigate to chat page
       navigate('/chat');

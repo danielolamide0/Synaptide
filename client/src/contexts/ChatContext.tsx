@@ -11,6 +11,7 @@ interface ChatContextProps {
   sendMessage: (content: string) => Promise<void>;
   clearMessages: () => void;
   logout: () => void;
+  loadOrCreateUser: (name: string) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextProps | undefined>(undefined);
@@ -21,6 +22,49 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  
+  // Function to load or create a user by name
+  const loadOrCreateUser = async (name: string) => {
+    try {
+      setIsLoading(true);
+      // Check if user exists 
+      const getUserResponse = await apiRequest({
+        url: `/api/users?name=${encodeURIComponent(name)}`
+      });
+      
+      if (getUserResponse.ok) {
+        // User exists, load their data
+        const userData = await getUserResponse.json();
+        setUser(userData);
+        localStorage.setItem('synaptideUser', JSON.stringify(userData));
+        return;
+      }
+      
+      // User doesn't exist, create a new user
+      const createUserResponse = await apiRequest({
+        url: '/api/users',
+        method: 'POST',
+        body: { name }
+      });
+      
+      if (!createUserResponse.ok) {
+        throw new Error(`Failed to create user: ${createUserResponse.statusText}`);
+      }
+      
+      const newUser = await createUserResponse.json();
+      setUser(newUser);
+      localStorage.setItem('synaptideUser', JSON.stringify(newUser));
+    } catch (error) {
+      console.error('Error loading or creating user:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load or create user. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Load user from localStorage
   useEffect(() => {
@@ -30,6 +74,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const parsedUser = JSON.parse(savedUser);
           setUser(parsedUser);
+          console.log('User loaded from localStorage:', parsedUser);
         } catch (error) {
           console.error('Failed to parse user data:', error);
           localStorage.removeItem('synaptideUser');
@@ -182,7 +227,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user, 
       sendMessage, 
       clearMessages,
-      logout 
+      logout,
+      loadOrCreateUser
     }}>
       {children}
     </ChatContext.Provider>
