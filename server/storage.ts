@@ -11,11 +11,13 @@ import {
 } from "@shared/schema";
 import { 
   db, 
-  usersCollection,
-  messagesCollection, 
-  userProfileCollection,
+  chatsCollection,
+  getUserDoc,
   getUserMessagesCollection,
-  convertFirebaseDocToUser,
+  getUserProfileDoc,
+  getUserSummariesCollection,
+  getUserByName as getFirebaseUserByName,
+  createUserInFirebase,
   convertFirebaseDocToMessage, 
   convertFirebaseDocToUserProfile 
 } from "./firebase";
@@ -33,7 +35,8 @@ import {
   serverTimestamp,
   Timestamp,
   collection,
-  where
+  where,
+  writeBatch
 } from "firebase/firestore";
 
 export interface IStorage {
@@ -56,16 +59,16 @@ export class FirebaseStorage implements IStorage {
   // User related methods
   async getUser(name: string): Promise<User | undefined> {
     try {
-      // Query users with matching name
-      const q = query(usersCollection, where("name", "==", name));
-      const querySnapshot = await getDocs(q);
+      console.log(`Getting user by name: ${name}`);
+      const user = await getFirebaseUserByName(name);
       
-      if (querySnapshot.empty) {
+      if (!user) {
+        console.log(`No user found with name: ${name}`);
         return undefined;
       }
       
-      // Return the first user found with this name
-      return convertFirebaseDocToUser(querySnapshot.docs[0]);
+      console.log(`Found user with ID: ${user.id}`);
+      return user;
     } catch (error) {
       console.error("Error getting user:", error);
       return undefined;
@@ -74,30 +77,9 @@ export class FirebaseStorage implements IStorage {
   
   async createUser(insertUser: InsertUser): Promise<User> {
     try {
-      // Check if user already exists
-      const existingUser = await this.getUser(insertUser.name);
-      if (existingUser) {
-        // Update last seen time
-        await this.updateUserLastSeen(existingUser.id);
-        return existingUser;
-      }
-      
-      // Create new user with timestamp
-      const now = new Date();
-      const userData = {
-        ...insertUser,
-        createdAt: now,
-        lastSeen: now
-      };
-      
-      // Add to Firestore
-      const docRef = await addDoc(usersCollection, userData);
-      
-      // Return the newly created user with its id
-      return {
-        ...userData,
-        id: docRef.id
-      };
+      console.log(`Creating or retrieving user with name: ${insertUser.name}`);
+      // Use the helper function from firebase.ts which handles the creation of user and profile
+      return await createUserInFirebase(insertUser);
     } catch (error) {
       console.error("Error creating user:", error);
       throw new Error("Failed to create user in Firestore");
@@ -106,10 +88,11 @@ export class FirebaseStorage implements IStorage {
   
   async updateUserLastSeen(userId: string): Promise<void> {
     try {
+      console.log(`Updating last seen for user ${userId}`);
+      // Update the user document in the users collection (for username lookup)
+      const usersCollection = collection(db, "users");
       const userRef = doc(usersCollection, userId);
-      await updateDoc(userRef, {
-        lastSeen: new Date()
-      });
+      await updateDoc(userRef, { lastSeen: new Date() });
     } catch (error) {
       console.error("Error updating user last seen:", error);
     }
@@ -120,21 +103,51 @@ export class FirebaseStorage implements IStorage {
     try {
       console.log(`Creating message for user ${userId}:`, insertMessage);
       
-      // Add message to main messages collection with userId field
-      const messageData = {
-        ...insertMessage,
-        userId,
-        timestamp: insertMessage.timestamp || new Date()
-      };
+      // Get reference to the user's messages collection
+      const messagesCollection = getUserMessagesCollection(userId);
+      
+      // Format the message in the structure expected for the chat
+      const now = new Date();
+      let messageData: any;
+      
+      if (insertMessage.role === 'user') {
+        // User message only has user_input field
+        messageData = {
+          user_input: insertMessage.content,
+          timestamp: now,
+          version: 1
+        };
+      } else if (insertMessage.role === 'assistant') {
+        // AI message needs both fields
+        // Note: For our structure, we should have the user message create the document
+        // and the AI message update it, but for now we'll support both
+        messageData = {
+          user_input: "",  // This would normally be filled with the user's input
+          ai_response: insertMessage.content,
+          timestamp: now,
+          version: 1
+        };
+      } else {
+        // Other message types (system, etc) - just store content
+        messageData = {
+          content: insertMessage.content,
+          role: insertMessage.role,
+          timestamp: now,
+          version: 1
+        };
+      }
       
       // Add to Firestore
       const docRef = await addDoc(messagesCollection, messageData);
       console.log(`Created message with ID: ${docRef.id}`);
       
-      // Return the newly created message with its id
+      // Return the newly created message in our expected format
       return {
-        ...messageData,
-        id: docRef.id
+        id: docRef.id,
+        userId,
+        role: insertMessage.role,
+        content: insertMessage.content,
+        timestamp: now
       };
     } catch (error) {
       console.error("Error creating message:", error);
@@ -146,20 +159,56 @@ export class FirebaseStorage implements IStorage {
     try {
       console.log(`Getting messages for user ${userId}`);
       
-      // Use a simpler query without composite indexes
-      // First get all messages for this user
-      const q = query(
-        messagesCollection,
-        where("userId", "==", userId)
-      );
+      // Get the user's messages collection
+      const messagesCollection = getUserMessagesCollection(userId);
       
-      const querySnapshot = await getDocs(q);
+      // Query all messages in the collection
+      // We'll sort by timestamp afterward
+      const querySnapshot = await getDocs(messagesCollection);
       console.log(`Found ${querySnapshot.size} messages for user ${userId}`);
       
-      // Convert to Message objects
+      // Convert to our Message format
       const messages: Message[] = [];
+      
       querySnapshot.forEach((doc) => {
-        messages.push(convertFirebaseDocToMessage(doc));
+        const data = doc.data();
+        
+        // Process user message
+        if (data.user_input && !data.ai_response) {
+          messages.push({
+            id: doc.id,
+            userId,
+            role: 'user',
+            content: data.user_input,
+            timestamp: data.timestamp instanceof Timestamp ? 
+              data.timestamp.toDate() : new Date(data.timestamp)
+          });
+        }
+        
+        // Process AI message
+        if (data.ai_response) {
+          messages.push({
+            id: `${doc.id}_ai`,
+            userId,
+            role: 'assistant',
+            content: data.ai_response,
+            timestamp: data.timestamp instanceof Timestamp ? 
+              new Date(data.timestamp.toDate().getTime() + 1000) : // add 1 second to ensure it comes after user message
+              new Date(new Date(data.timestamp).getTime() + 1000)
+          });
+        }
+        
+        // Process other message types
+        if (data.role && data.content) {
+          messages.push({
+            id: doc.id,
+            userId,
+            role: data.role,
+            content: data.content,
+            timestamp: data.timestamp instanceof Timestamp ? 
+              data.timestamp.toDate() : new Date(data.timestamp)
+          });
+        }
       });
       
       // Sort manually by timestamp
@@ -181,10 +230,11 @@ export class FirebaseStorage implements IStorage {
     try {
       console.log(`Clearing messages for user ${userId}`);
       
-      // Query all messages for this user
-      const q = query(messagesCollection, where("userId", "==", userId));
-      const querySnapshot = await getDocs(q);
+      // Get the user's messages collection
+      const messagesCollection = getUserMessagesCollection(userId);
       
+      // Get all messages in the collection
+      const querySnapshot = await getDocs(messagesCollection);
       console.log(`Found ${querySnapshot.size} messages to delete for user ${userId}`);
       
       // Delete each message document
@@ -203,16 +253,27 @@ export class FirebaseStorage implements IStorage {
   // User profile related methods
   async getUserProfile(userId: string): Promise<UserProfile | undefined> {
     try {
-      // Query user profile with matching userId
-      const q = query(userProfileCollection, where("userId", "==", userId));
-      const querySnapshot = await getDocs(q);
+      console.log(`Getting profile for user ${userId}`);
       
-      if (querySnapshot.empty) {
+      // Get the profile document reference
+      const profileDoc = getUserProfileDoc(userId);
+      
+      // Check if it exists
+      const docSnap = await getDoc(profileDoc);
+      if (!docSnap.exists()) {
+        console.log(`No profile found for user ${userId}`);
         return undefined;
       }
       
-      // Return the first profile found for this user
-      return convertFirebaseDocToUserProfile(querySnapshot.docs[0]);
+      // Convert to our UserProfile format
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        userId,
+        interests: data.short_term_interests || data.interests || [],
+        communicationStyle: (data.bio?.personality_traits?.[0]) || "neutral",
+        preferences: data.preferences || {}
+      };
     } catch (error) {
       console.error(`Error getting profile for user ${userId}:`, error);
       return undefined;
@@ -221,58 +282,121 @@ export class FirebaseStorage implements IStorage {
 
   async updateUserProfile(userId: string, profileData: Partial<UserProfile>): Promise<UserProfile> {
     try {
-      // Check if profile already exists
-      const existingProfile = await this.getUserProfile(userId);
+      console.log(`Updating profile for user ${userId}`);
       
-      if (existingProfile) {
-        // Update existing profile
-        const profileRef = doc(userProfileCollection, existingProfile.id);
+      // Get the profile document reference
+      const profileDoc = getUserProfileDoc(userId);
+      
+      // Check if it exists
+      const docSnap = await getDoc(profileDoc);
+      
+      if (docSnap.exists()) {
+        console.log(`Updating existing profile for user ${userId}`);
+        const data = docSnap.data();
         
-        // Merge interests arrays
-        const combinedInterests = [
-          ...(existingProfile.interests || []),
+        // Increment version
+        const newVersion = (data.version || 1) + 1;
+        
+        // Merge interests
+        const shortTermInterests = Array.from(new Set([
+          ...(data.short_term_interests || []),
           ...(profileData.interests || [])
-        ];
-        // Remove duplicates
-        const mergedInterests = Array.from(new Set(combinedInterests));
+        ]));
         
-        // Merge preferences objects
-        const mergedPreferences = {
-          ...(existingProfile.preferences || {}),
+        // Merge preferences
+        const newPreferences = {
+          ...(data.preferences || {}),
           ...(profileData.preferences || {})
         };
         
-        // Update document
-        await updateDoc(profileRef, {
-          ...profileData,
-          interests: mergedInterests,
-          preferences: mergedPreferences
+        // Add to version history
+        const now = new Date();
+        const versionHistory = data.versionHistory || [];
+        versionHistory.push({
+          timestamp: now,
+          changes: {
+            short_term_interests: shortTermInterests,
+            preferences: newPreferences
+          }
         });
         
-        // Return updated profile
+        // Update the profile document
+        await updateDoc(profileDoc, {
+          short_term_interests: shortTermInterests,
+          preferences: newPreferences,
+          version: newVersion,
+          versionHistory,
+          last_updated: now
+        });
+        
+        // Update personality traits if communicationStyle is provided
+        if (profileData.communicationStyle && 
+            profileData.communicationStyle !== "neutral" && 
+            data.bio) {
+          
+          const personalityTraits = data.bio.personality_traits || [];
+          if (!personalityTraits.includes(profileData.communicationStyle)) {
+            personalityTraits.unshift(profileData.communicationStyle);
+            
+            // Update bio subfield
+            await updateDoc(profileDoc, {
+              "bio.personality_traits": personalityTraits
+            });
+          }
+        }
+        
+        // Return the updated profile in our format
         return {
-          ...existingProfile,
-          ...profileData,
-          interests: mergedInterests,
-          preferences: mergedPreferences
+          id: docSnap.id,
+          userId,
+          interests: shortTermInterests,
+          communicationStyle: profileData.communicationStyle || 
+                             (data.bio?.personality_traits?.[0]) || 
+                             "neutral",
+          preferences: newPreferences
         };
       } else {
-        // Create new profile
-        const newProfile: UserProfile = {
-          id: "", // Temporary ID, will be replaced with Firebase document ID
-          userId, // Link to the user
+        // This shouldn't happen since we create the profile when creating the user
+        console.log(`Profile for user ${userId} not found, creating new one`);
+        
+        // Initialize a new profile with the hierarchical structure
+        const now = new Date();
+        const newProfileData = {
+          bio: {
+            name: "",
+            age: null,
+            birthday: "",
+            nationality: "",
+            location: "",
+            food_preferences: [],
+            hobbies: [],
+            interests: [],
+            personality_traits: profileData.communicationStyle ? 
+                               [profileData.communicationStyle] : [],
+            occupation: "",
+            education: "",
+            relationship_status: "",
+            languages: []
+          },
+          short_term_interests: profileData.interests || [],
+          long_term_interests: [],
+          traits: [],
+          preferences: profileData.preferences || {},
+          last_updated: now,
+          version: 1,
+          versionHistory: []
+        };
+        
+        // Set the document
+        await setDoc(profileDoc, newProfileData);
+        
+        // Return the profile in our format
+        return {
+          id: profileDoc.id,
+          userId,
           interests: profileData.interests || [],
           communicationStyle: profileData.communicationStyle || "neutral",
           preferences: profileData.preferences || {}
-        };
-        
-        // Add to Firestore
-        const docRef = await addDoc(userProfileCollection, newProfile);
-        
-        // Return new profile with proper ID
-        return {
-          ...newProfile,
-          id: docRef.id
         };
       }
     } catch (error) {

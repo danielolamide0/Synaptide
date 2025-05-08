@@ -1,0 +1,66 @@
+Firebase Firestore Structure
+Root Collection: chats
+This is the top-level collection that organizes all user-related data.
+Each document in this collection represents a specific user, identified by a user_id.
+User Document: chats/{user_id}
+The document ID is the user_id, which uniquely identifies a user.
+This document does not store data directly but serves as a container for subcollections.
+Subcollections under chats/{user_id}:
+messages
+Purpose: Stores individual chat messages for the user.
+Document Structure:
+Each document is auto-generated with a unique ID (created via db.collection("chats").document(user_id).collection("messages").document()).
+Fields:
+user_input: String, the user's input message.
+ai_response: String, the AI's response to the user's input.
+timestamp: Firestore Timestamp, the time the message was saved (set to firestore.SERVER_TIMESTAMP for server-side time).
+version: Integer, version number for the message (set to 1 in the code).
+Usage:
+Messages are saved using the save_chat function.
+Retrieved for context (get_recent_messages) or session summarization (get_session_messages).
+Filtered by timestamp (e.g., messages from the last 30 days in search_time_aware_context).
+profile
+Purpose: Stores the user's profile information.
+Document Structure:
+A single document with the ID data (chats/{user_id}/profile/data).
+Fields:
+bio: Object, containing structured user information:
+name: String, user's name (empty by default).
+age: Integer or null, user's age.
+birthday: String, user's birthday in a human-readable format (e.g., "May 05, 2000").
+nationality: String, user's nationality.
+location: String, user's location.
+food_preferences: Array of strings, user's food preferences.
+hobbies: Array of strings, user's hobbies.
+interests: Array of strings, user's interests.
+personality_traits: Array of strings, user's personality traits.
+occupation: String, user's occupation.
+education: String, user's education level or field.
+relationship_status: String, user's relationship status.
+languages: Array of strings, languages the user speaks.
+short_term_interests: Array of strings, user's short-term interests.
+long_term_interests: Array of strings, user's long-term interests.
+traits: Array of strings, additional user traits (not populated in the code).
+preferences: Object, user preferences (empty by default).
+last_updated: Firestore Timestamp, when the profile was last updated.
+version: Integer, version number for the profile (incremented on updates).
+versionHistory: Array of objects, tracks changes to the profile:
+Each object contains:
+timestamp: Datetime, when the change occurred.
+changes: Object, details of the updated fields (e.g., bio or short_term_interests).
+Usage:
+Managed by the get_profile function, which initializes or retrieves the profile.
+Updated transactionally in summarize_and_update_profile to avoid conflicts.
+Used to provide context for AI responses and store inferred user data (e.g., education, occupation).
+summaries
+Purpose: Stores summaries of chat sessions for the user.
+Document Structure:
+Each document is auto-generated with a unique ID (created via summaries_ref.add()).
+Fields:
+summary: String, a 1-2 sentence summary of the chat session.
+timestamp: Firestore Timestamp, when the summary was created.
+version: Integer, version number for the summary (set to 1 in the code).
+Usage:
+Created by the summarize_and_update_profile function every 5 messages.
+Used to track key topics or intents from chat sessions.
+The latest summary's timestamp is used to determine which messages to include in the next summary (get_session_messages).

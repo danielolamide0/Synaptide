@@ -39,21 +39,37 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Collection references - using flat structure to maintain compatibility with existing rules
-const usersCollection = collection(db, "users");
-const messagesCollection = collection(db, "messages");
-const userProfileCollection = collection(db, "userProfiles");
+// Root collection for all user data
+const chatsCollection = collection(db, "chats");
 
-export { db, usersCollection, messagesCollection, userProfileCollection };
+export { db, chatsCollection };
 
-// Get user-specific messages collection
-export const getUserMessagesCollection = (userId: string) => {
-  return collection(db, `messages`);
+// Helper function to get a reference to a user document
+export const getUserDoc = (userId: string) => {
+  return doc(chatsCollection, userId);
 };
 
-// Helper function to get user by name
+// Helper function to get messages collection for a specific user
+export const getUserMessagesCollection = (userId: string) => {
+  return collection(getUserDoc(userId), "messages");
+};
+
+// Helper function to get profile document for a specific user
+export const getUserProfileDoc = (userId: string) => {
+  return doc(collection(getUserDoc(userId), "profile"), "data");
+};
+
+// Helper function to get summaries collection for a specific user
+export const getUserSummariesCollection = (userId: string) => {
+  return collection(getUserDoc(userId), "summaries");
+};
+
+// Helper function to get user by name - we still need a users collection for name lookup
+// We'll use a separate collection to map usernames to user IDs
 export const getUserByName = async (name: string): Promise<User | null> => {
   try {
+    // Look up user in the users collection (simple name -> id mapping)
+    const usersCollection = collection(db, "users");
     const q = query(usersCollection, where("name", "==", name));
     const querySnapshot = await getDocs(q);
     
@@ -62,8 +78,27 @@ export const getUserByName = async (name: string): Promise<User | null> => {
       return null;
     }
     
+    // Get the user ID from the mapping
     const userDoc = querySnapshot.docs[0];
-    return convertFirebaseDocToUser(userDoc);
+    const userId = userDoc.id;
+    
+    // Get the actual user data from the chats collection
+    const userDataDoc = await getDoc(getUserDoc(userId));
+    
+    if (!userDataDoc.exists()) {
+      console.log(`User data not found for ID: ${userId}`);
+      return null;
+    }
+    
+    // Return the user data
+    return {
+      id: userId,
+      name: name,
+      createdAt: userDoc.data().createdAt instanceof Timestamp ? 
+        userDoc.data().createdAt.toDate() : userDoc.data().createdAt,
+      lastSeen: userDoc.data().lastSeen instanceof Timestamp ? 
+        userDoc.data().lastSeen.toDate() : userDoc.data().lastSeen
+    };
   } catch (error) {
     console.error("Error fetching user by name:", error);
     return null;
@@ -78,6 +113,7 @@ export const createUserInFirebase = async (userData: any): Promise<User> => {
     if (existingUser) {
       console.log(`User ${userData.name} already exists, returning existing user`);
       // Update lastSeen
+      const usersCollection = collection(db, "users");
       const userRef = doc(usersCollection, existingUser.id);
       await updateDoc(userRef, { lastSeen: new Date() });
       return existingUser;
@@ -86,17 +122,56 @@ export const createUserInFirebase = async (userData: any): Promise<User> => {
     // Create new user
     const now = new Date();
     const newUserData = {
-      ...userData,
+      name: userData.name,
       createdAt: now,
       lastSeen: now
     };
     
-    const docRef = await addDoc(usersCollection, newUserData);
-    console.log(`Created new user with ID: ${docRef.id}`);
+    // Create a new entry in the users collection (for name lookup)
+    const usersCollection = collection(db, "users");
+    const userRef = await addDoc(usersCollection, newUserData);
+    const userId = userRef.id;
+    
+    console.log(`Created new user with ID: ${userId}`);
+    
+    // Initialize the user's data structure in the chats collection
+    const userDoc = getUserDoc(userId);
+    await setDoc(userDoc, {
+      created: now
+    });
+    
+    // Initialize the user's profile
+    const profileDoc = getUserProfileDoc(userId);
+    await setDoc(profileDoc, {
+      bio: {
+        name: userData.name,
+        age: null,
+        birthday: "",
+        nationality: "",
+        location: "",
+        food_preferences: [],
+        hobbies: [],
+        interests: [],
+        personality_traits: [],
+        occupation: "",
+        education: "",
+        relationship_status: "",
+        languages: []
+      },
+      short_term_interests: [],
+      long_term_interests: [],
+      traits: [],
+      preferences: {},
+      last_updated: now,
+      version: 1,
+      versionHistory: []
+    });
     
     return {
-      ...newUserData,
-      id: docRef.id
+      id: userId,
+      name: userData.name,
+      createdAt: now,
+      lastSeen: now
     };
   } catch (error) {
     console.error("Error creating user:", error);
@@ -104,17 +179,7 @@ export const createUserInFirebase = async (userData: any): Promise<User> => {
   }
 };
 
-// Helper functions for data conversion
-export const convertFirebaseDocToUser = (doc: DocumentData): User => {
-  const data = doc.data();
-  return {
-    id: doc.id,
-    name: data.name,
-    createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : data.createdAt,
-    lastSeen: data.lastSeen instanceof Timestamp ? data.lastSeen.toDate() : data.lastSeen
-  };
-};
-
+// Convert Firestore message document to Message object
 export const convertFirebaseDocToMessage = (doc: DocumentData): Message => {
   const data = doc.data();
   return {
@@ -126,13 +191,15 @@ export const convertFirebaseDocToMessage = (doc: DocumentData): Message => {
   };
 };
 
+// Convert Firestore profile document to UserProfile object
 export const convertFirebaseDocToUserProfile = (doc: DocumentData): UserProfile => {
   const data = doc.data();
+  // Extract the relevant data from the profile format
   return {
     id: doc.id,
-    userId: data.userId,
-    interests: data.interests || [],
-    communicationStyle: data.communicationStyle || "neutral",
+    userId: data.userId || doc.ref.parent.parent?.id || "",
+    interests: data.short_term_interests || data.interests || [],
+    communicationStyle: data.bio?.personality_traits?.[0] || data.communicationStyle || "neutral",
     preferences: data.preferences || {},
   };
 };
