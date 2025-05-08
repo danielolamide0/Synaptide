@@ -1,8 +1,21 @@
-import { messages, userProfile, type Message, type InsertMessage, type UserProfile, type InsertUserProfile } from "@shared/schema";
+import { 
+  messages, 
+  userProfile, 
+  users, 
+  type Message, 
+  type InsertMessage, 
+  type UserProfile, 
+  type InsertUserProfile,
+  type User,
+  type InsertUser 
+} from "@shared/schema";
 import { 
   db, 
+  usersCollection,
   messagesCollection, 
-  userProfileCollection, 
+  userProfileCollection,
+  getUserMessagesCollection,
+  convertFirebaseDocToUser,
   convertFirebaseDocToMessage, 
   convertFirebaseDocToUserProfile 
 } from "./firebase";
@@ -19,30 +32,107 @@ import {
   updateDoc, 
   serverTimestamp,
   Timestamp,
-  collection
+  collection,
+  where
 } from "firebase/firestore";
 
 export interface IStorage {
-  createMessage(message: InsertMessage): Promise<Message>;
-  getAllMessages(): Promise<Message[]>;
-  clearMessages(): Promise<void>;
-  getUserProfile(): Promise<UserProfile | undefined>;
-  updateUserProfile(profile: Partial<UserProfile>): Promise<UserProfile>;
+  // User related methods
+  getUser(name: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUserLastSeen(userId: string): Promise<void>;
+  
+  // Message related methods
+  createMessage(userId: string, message: InsertMessage): Promise<Message>;
+  getMessagesForUser(userId: string): Promise<Message[]>;
+  clearMessagesForUser(userId: string): Promise<void>;
+  
+  // User profile related methods
+  getUserProfile(userId: string): Promise<UserProfile | undefined>;
+  updateUserProfile(userId: string, profile: Partial<UserProfile>): Promise<UserProfile>;
 }
 
 export class FirebaseStorage implements IStorage {
-  async createMessage(insertMessage: InsertMessage): Promise<Message> {
+  // User related methods
+  async getUser(name: string): Promise<User | undefined> {
     try {
-      // Add message to Firestore
-      const docRef = await addDoc(messagesCollection, {
+      // Query users with matching name
+      const q = query(usersCollection, where("name", "==", name));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        return undefined;
+      }
+      
+      // Return the first user found with this name
+      return convertFirebaseDocToUser(querySnapshot.docs[0]);
+    } catch (error) {
+      console.error("Error getting user:", error);
+      return undefined;
+    }
+  }
+  
+  async createUser(insertUser: InsertUser): Promise<User> {
+    try {
+      // Check if user already exists
+      const existingUser = await this.getUser(insertUser.name);
+      if (existingUser) {
+        // Update last seen time
+        await this.updateUserLastSeen(existingUser.id);
+        return existingUser;
+      }
+      
+      // Create new user with timestamp
+      const now = new Date();
+      const userData = {
+        ...insertUser,
+        createdAt: now,
+        lastSeen: now
+      };
+      
+      // Add to Firestore
+      const docRef = await addDoc(usersCollection, userData);
+      
+      // Return the newly created user with its id
+      return {
+        ...userData,
+        id: docRef.id
+      };
+    } catch (error) {
+      console.error("Error creating user:", error);
+      throw new Error("Failed to create user in Firestore");
+    }
+  }
+  
+  async updateUserLastSeen(userId: string): Promise<void> {
+    try {
+      const userRef = doc(usersCollection, userId);
+      await updateDoc(userRef, {
+        lastSeen: new Date()
+      });
+    } catch (error) {
+      console.error("Error updating user last seen:", error);
+    }
+  }
+  
+  // Message related methods
+  async createMessage(userId: string, insertMessage: InsertMessage): Promise<Message> {
+    try {
+      // Get user-specific messages collection
+      const userMessagesCollection = getUserMessagesCollection(userId);
+      
+      // Add message to user's messages collection
+      const docRef = await addDoc(userMessagesCollection, {
         ...insertMessage,
-        timestamp: insertMessage.timestamp
+        userId,
+        timestamp: insertMessage.timestamp || new Date()
       });
       
       // Return the newly created message with its id
       return {
         ...insertMessage,
         id: docRef.id,
+        userId
       };
     } catch (error) {
       console.error("Error creating message:", error);
@@ -50,30 +140,42 @@ export class FirebaseStorage implements IStorage {
     }
   }
 
-  async getAllMessages(): Promise<Message[]> {
+  async getMessagesForUser(userId: string): Promise<Message[]> {
     try {
+      // Get user-specific messages collection
+      const userMessagesCollection = getUserMessagesCollection(userId);
+      
       // Query messages ordered by timestamp
-      const q = query(messagesCollection, orderBy("timestamp"));
+      const q = query(userMessagesCollection, orderBy("timestamp"));
       const querySnapshot = await getDocs(q);
       
       // Convert Firebase docs to Message objects
       const messages: Message[] = [];
       querySnapshot.forEach((doc) => {
-        const message = convertFirebaseDocToMessage(doc);
+        const message = convertFirebaseDocToMessage({
+          ...doc,
+          data: () => ({
+            ...doc.data(),
+            userId // Ensure userId is included
+          })
+        });
         messages.push(message);
       });
       
       return messages;
     } catch (error) {
-      console.error("Error getting messages:", error);
+      console.error(`Error getting messages for user ${userId}:`, error);
       return [];
     }
   }
 
-  async clearMessages(): Promise<void> {
+  async clearMessagesForUser(userId: string): Promise<void> {
     try {
-      // Get all messages
-      const querySnapshot = await getDocs(messagesCollection);
+      // Get user-specific messages collection
+      const userMessagesCollection = getUserMessagesCollection(userId);
+      
+      // Get all messages for this user
+      const querySnapshot = await getDocs(userMessagesCollection);
       
       // Delete each message document
       const deletePromises = querySnapshot.docs.map(doc => 
@@ -82,31 +184,34 @@ export class FirebaseStorage implements IStorage {
       
       await Promise.all(deletePromises);
     } catch (error) {
-      console.error("Error clearing messages:", error);
+      console.error(`Error clearing messages for user ${userId}:`, error);
       throw new Error("Failed to clear messages from Firestore");
     }
   }
 
-  async getUserProfile(): Promise<UserProfile | undefined> {
+  // User profile related methods
+  async getUserProfile(userId: string): Promise<UserProfile | undefined> {
     try {
-      const querySnapshot = await getDocs(userProfileCollection);
+      // Query user profile with matching userId
+      const q = query(userProfileCollection, where("userId", "==", userId));
+      const querySnapshot = await getDocs(q);
       
       if (querySnapshot.empty) {
         return undefined;
       }
       
-      // Return the first user profile found (assuming there's only one)
+      // Return the first profile found for this user
       return convertFirebaseDocToUserProfile(querySnapshot.docs[0]);
     } catch (error) {
-      console.error("Error getting user profile:", error);
+      console.error(`Error getting profile for user ${userId}:`, error);
       return undefined;
     }
   }
 
-  async updateUserProfile(profileData: Partial<UserProfile>): Promise<UserProfile> {
+  async updateUserProfile(userId: string, profileData: Partial<UserProfile>): Promise<UserProfile> {
     try {
       // Check if profile already exists
-      const existingProfile = await this.getUserProfile();
+      const existingProfile = await this.getUserProfile(userId);
       
       if (existingProfile) {
         // Update existing profile
@@ -144,6 +249,7 @@ export class FirebaseStorage implements IStorage {
         // Create new profile
         const newProfile: UserProfile = {
           id: "", // Temporary ID, will be replaced with Firebase document ID
+          userId, // Link to the user
           interests: profileData.interests || [],
           communicationStyle: profileData.communicationStyle || "neutral",
           preferences: profileData.preferences || {}
@@ -159,7 +265,7 @@ export class FirebaseStorage implements IStorage {
         };
       }
     } catch (error) {
-      console.error("Error updating user profile:", error);
+      console.error(`Error updating profile for user ${userId}:`, error);
       throw new Error("Failed to update user profile in Firestore");
     }
   }
