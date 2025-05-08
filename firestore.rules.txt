@@ -1,0 +1,28 @@
+// Firestore Rules for Synaptide
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow public read/write access to messages and userProfile collections
+    match /messages/{document=**} {
+      allow read, write;
+    }
+    
+    match /userProfile/{document=**} {
+      allow read, write;
+    }
+  }
+}
+
+/*
+Note: These rules allow public access without authentication.
+For a production application, you would want to implement proper
+authentication and more restrictive rules. These rules are
+suitable for development purposes only.
+
+To apply these rules:
+1. Go to Firebase Console
+2. Navigate to Firestore Database
+3. Click on the "Rules" tab
+4. Paste these rules and click "Publish"
+*/
