@@ -1,0 +1,33 @@
+import { pgTable, text, serial, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+
+// Message schema
+export const messages = pgTable("messages", {
+  id: text("id").primaryKey(),
+  role: text("role").notNull(), // "user" or "assistant"
+  content: text("content").notNull(),
+  timestamp: timestamp("timestamp").notNull(),
+});
+
+export const insertMessageSchema = createInsertSchema(messages).omit({
+  id: true,
+});
+
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type Message = typeof messages.$inferSelect;
+
+// User profile schema for storing preferences
+export const userProfile = pgTable("user_profile", {
+  id: text("id").primaryKey(),
+  interests: text("interests").array(),
+  communicationStyle: text("communication_style"),
+  preferences: jsonb("preferences"),
+});
+
+export const insertUserProfileSchema = createInsertSchema(userProfile).omit({
+  id: true,
+});
+
+export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
+export type UserProfile = typeof userProfile.$inferSelect;
