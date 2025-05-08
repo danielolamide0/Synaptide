@@ -273,66 +273,148 @@ export class FirebaseStorage implements IStorage {
 
 // Create a fallback memory storage in case Firebase has permission issues
 export class MemStorage implements IStorage {
-  private messages: Map<string, Message>;
-  private userProfile: UserProfile | undefined;
-  private currentId: number;
+  private users: Map<string, User>;
+  private userMessages: Map<string, Map<string, Message>>;
+  private userProfiles: Map<string, UserProfile>;
+  private currentIds: {
+    users: number;
+    messages: number;
+    profiles: number;
+  };
 
   constructor() {
-    this.messages = new Map();
-    this.currentId = 1;
+    this.users = new Map();
+    this.userMessages = new Map();
+    this.userProfiles = new Map();
+    this.currentIds = {
+      users: 1,
+      messages: 1,
+      profiles: 1
+    };
   }
 
-  async createMessage(insertMessage: InsertMessage): Promise<Message> {
-    const id = `msg_${this.currentId++}`;
-    const message: Message = { ...insertMessage, id };
-    this.messages.set(id, message);
+  // User related methods
+  async getUser(name: string): Promise<User | undefined> {
+    const users = Array.from(this.users.values());
+    return users.find(user => user.name === name);
+  }
+  
+  async createUser(insertUser: InsertUser): Promise<User> {
+    // Check if user already exists
+    const existingUser = await this.getUser(insertUser.name);
+    if (existingUser) {
+      // Update last seen time
+      await this.updateUserLastSeen(existingUser.id);
+      return existingUser;
+    }
+    
+    // Create new user
+    const id = `user_${this.currentIds.users++}`;
+    const now = new Date();
+    const user: User = {
+      ...insertUser,
+      id,
+      createdAt: now,
+      lastSeen: now
+    };
+    
+    this.users.set(id, user);
+    
+    // Initialize empty message collection for this user
+    if (!this.userMessages.has(id)) {
+      this.userMessages.set(id, new Map());
+    }
+    
+    return user;
+  }
+  
+  async updateUserLastSeen(userId: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.lastSeen = new Date();
+      this.users.set(userId, user);
+    }
+  }
+  
+  // Message related methods
+  async createMessage(userId: string, insertMessage: InsertMessage): Promise<Message> {
+    // Get or create the user's message collection
+    if (!this.userMessages.has(userId)) {
+      this.userMessages.set(userId, new Map());
+    }
+    
+    const id = `msg_${this.currentIds.messages++}`;
+    const message: Message = { 
+      ...insertMessage, 
+      id,
+      userId // Ensure userId is included
+    };
+    
+    this.userMessages.get(userId)!.set(id, message);
     return message;
   }
 
-  async getAllMessages(): Promise<Message[]> {
-    return Array.from(this.messages.values()).sort((a, b) => {
+  async getMessagesForUser(userId: string): Promise<Message[]> {
+    if (!this.userMessages.has(userId)) {
+      return [];
+    }
+    
+    return Array.from(this.userMessages.get(userId)!.values()).sort((a, b) => {
       const dateA = new Date(a.timestamp);
       const dateB = new Date(b.timestamp);
       return dateA.getTime() - dateB.getTime();
     });
   }
 
-  async clearMessages(): Promise<void> {
-    this.messages.clear();
-    return;
+  async clearMessagesForUser(userId: string): Promise<void> {
+    if (this.userMessages.has(userId)) {
+      this.userMessages.get(userId)!.clear();
+    }
   }
 
-  async getUserProfile(): Promise<UserProfile | undefined> {
-    return this.userProfile;
+  // User profile related methods
+  async getUserProfile(userId: string): Promise<UserProfile | undefined> {
+    return this.userProfiles.get(userId);
   }
 
-  async updateUserProfile(profileData: Partial<UserProfile>): Promise<UserProfile> {
-    if (!this.userProfile) {
-      this.userProfile = {
-        id: "profile_1",
-        interests: [],
-        communicationStyle: "neutral",
-        preferences: {},
-        ...profileData
-      };
-    } else {
-      this.userProfile = {
-        ...this.userProfile,
+  async updateUserProfile(userId: string, profileData: Partial<UserProfile>): Promise<UserProfile> {
+    const existingProfile = await this.getUserProfile(userId);
+    
+    if (existingProfile) {
+      // Update existing profile
+      const updatedProfile: UserProfile = {
+        ...existingProfile,
         ...profileData,
+        // Ensure required fields
+        userId,
         // Merge arrays for interests
         interests: Array.from(new Set([
-          ...(this.userProfile.interests || []),
+          ...(existingProfile.interests || []),
           ...(profileData.interests || [])
         ])),
         // Merge objects for preferences
         preferences: {
-          ...(this.userProfile.preferences || {}),
+          ...(existingProfile.preferences || {}),
           ...(profileData.preferences || {})
         }
       };
+      
+      this.userProfiles.set(userId, updatedProfile);
+      return updatedProfile;
+    } else {
+      // Create new profile
+      const id = `profile_${this.currentIds.profiles++}`;
+      const newProfile: UserProfile = {
+        id,
+        userId,
+        interests: profileData.interests || [],
+        communicationStyle: profileData.communicationStyle || "neutral",
+        preferences: profileData.preferences || {}
+      };
+      
+      this.userProfiles.set(userId, newProfile);
+      return newProfile;
     }
-    
-    return this.userProfile;
   }
 }
 
