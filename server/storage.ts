@@ -418,6 +418,6 @@ export class MemStorage implements IStorage {
   }
 }
 
-// Use Firebase storage since permissions are now set up
-console.log("Using Firebase storage for data persistence");
-export const storage = new FirebaseStorage();
+// Firebase permissions issue detected, using in-memory storage instead
+console.log("Using in-memory storage due to Firebase permission issues");
+export const storage = new MemStorage();
