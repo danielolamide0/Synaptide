@@ -10,15 +10,31 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const Chat: React.FC = () => {
   const [, navigate] = useLocation();
-  const { messages, isLoading, sendMessage } = useChat();
+  const { messages, isLoading, user, sendMessage, clearMessages, logout } = useChat();
   const [inputValue, setInputValue] = useState('');
+  const [showMenu, setShowMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageContainerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,9 +94,47 @@ const Chat: React.FC = () => {
         </div>
         
         <div className="ml-auto flex items-center space-x-3">
-          <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white transition-colors">
-            <i className="fas fa-info-circle"></i>
-          </Button>
+          {/* User menu button */}
+          <div className="relative">
+            <Button 
+              variant="ghost" 
+              className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors"
+              onClick={() => setShowMenu(!showMenu)}
+            >
+              <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center overflow-hidden">
+                <i className="fas fa-user"></i>
+              </div>
+              <span className="hidden md:inline">{user?.name || 'User'}</span>
+              <i className={`fas fa-chevron-${showMenu ? 'up' : 'down'} text-xs`}></i>
+            </Button>
+            
+            {/* Dropdown menu */}
+            {showMenu && (
+              <div 
+                ref={menuRef}
+                className="absolute right-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-md shadow-lg z-50"
+              >
+                <div className="p-3 border-b border-zinc-800">
+                  <p className="text-white font-semibold">{user?.name || 'User'}</p>
+                </div>
+                <div className="p-2">
+                  <button 
+                    className="w-full text-left px-3 py-2 text-sm text-white hover:bg-zinc-800 rounded-md flex items-center"
+                    onClick={clearMessages}
+                  >
+                    <i className="fas fa-trash mr-2"></i> Clear chat history
+                  </button>
+                  <button 
+                    className="w-full text-left px-3 py-2 text-sm text-white hover:bg-zinc-800 rounded-md flex items-center"
+                    onClick={logout}
+                  >
+                    <i className="fas fa-sign-out-alt mr-2"></i> Log out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          
           <ThemeToggle />
         </div>
       </header>
@@ -160,8 +214,8 @@ const Chat: React.FC = () => {
               
               {message.role === 'user' && (
                 <div className="flex-shrink-0 ml-4">
-                  <div className="w-10 h-10 rounded-full bg-gray-500 flex items-center justify-center text-white">
-                    <i className="fas fa-user"></i>
+                  <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-white">
+                    <span className="text-xs font-medium">{user?.name?.charAt(0)?.toUpperCase() || 'U'}</span>
                   </div>
                 </div>
               )}

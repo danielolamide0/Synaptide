@@ -51,7 +51,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       try {
         setIsLoading(true);
-        const response = await apiRequest(`/api/users/${user.id}/messages`);
+        const response = await apiRequest({
+          url: `/api/users/${user.id}/messages`
+        });
         if (!response.ok) {
           throw new Error(`Failed to fetch messages: ${response.statusText}`);
         }
@@ -101,9 +103,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setMessages((prev) => [...prev, tempUserMessage]);
 
       // Send to server and get AI response
-      const response = await apiRequest(`/api/users/${user.id}/messages`, {
+      const response = await apiRequest({
+        url: `/api/users/${user.id}/messages`,
         method: 'POST',
-        body: JSON.stringify({ content }),
+        body: { content }
       });
       
       if (!response.ok) {
@@ -141,8 +144,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     setMessages([]);
-    apiRequest(`/api/users/${user.id}/messages`, {
-      method: 'DELETE',
+    apiRequest({
+      url: `/api/users/${user.id}/messages`,
+      method: 'DELETE'
     })
       .then(response => {
         if (!response.ok) {

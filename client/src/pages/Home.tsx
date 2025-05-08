@@ -25,9 +25,10 @@ const Home: React.FC = () => {
     
     try {
       // Create or get the user
-      const response = await apiRequest('/api/users', {
+      const response = await apiRequest({
+        url: '/api/users',
         method: 'POST',
-        body: JSON.stringify({ name: userName }),
+        body: { name: userName }
       });
       
       if (!response.ok) {

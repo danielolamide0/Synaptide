@@ -8,16 +8,48 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
+  urlOrOptions: string | { url: string; method?: string; body?: any },
+  options?: RequestInit
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  let url: string;
+  let finalOptions: RequestInit = { ...options };
+
+  if (typeof urlOrOptions === 'string') {
+    url = urlOrOptions;
+    // If called with old signature: apiRequest('GET', '/api/messages')
+    if (options && !options.method) {
+      finalOptions.method = options.toString();
+    }
+  } else {
+    // New signature: apiRequest({ url: '/api/users', method: 'POST', body: { name: 'User' } })
+    url = urlOrOptions.url;
+    finalOptions.method = urlOrOptions.method || 'GET';
+    
+    if (urlOrOptions.body) {
+      if (typeof urlOrOptions.body === 'string') {
+        finalOptions.body = urlOrOptions.body;
+      } else {
+        finalOptions.body = JSON.stringify(urlOrOptions.body);
+        finalOptions.headers = {
+          ...finalOptions.headers,
+          'Content-Type': 'application/json'
+        };
+      }
+    }
+  }
+
+  if (!finalOptions.method) {
+    finalOptions.method = 'GET';
+  }
+  
+  finalOptions.credentials = 'include';
+
+  const res = await fetch(url, finalOptions);
+  
+  // Don't throw error for 404s when getting user data - just let the component handle it
+  if (url.includes('/api/users') && finalOptions.method === 'GET' && res.status === 404) {
+    return res;
+  }
 
   await throwIfResNotOk(res);
   return res;
