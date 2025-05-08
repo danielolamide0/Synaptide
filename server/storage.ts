@@ -1,11 +1,7 @@
 import { 
-  messages, 
-  userProfile, 
-  users, 
   type Message, 
   type InsertMessage, 
   type UserProfile, 
-  type InsertUserProfile,
   type User,
   type InsertUser 
 } from "@shared/schema";
@@ -28,15 +24,12 @@ import {
   doc, 
   query, 
   orderBy, 
-  limit, 
   setDoc, 
   getDoc, 
   updateDoc, 
-  serverTimestamp,
   Timestamp,
   collection,
-  where,
-  writeBatch
+  where
 } from "firebase/firestore";
 
 export interface IStorage {
