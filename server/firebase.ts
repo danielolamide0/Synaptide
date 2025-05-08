@@ -64,40 +64,28 @@ export const getUserSummariesCollection = (userId: string) => {
   return collection(getUserDoc(userId), "summaries");
 };
 
-// Helper function to get user by name - we still need a users collection for name lookup
-// We'll use a separate collection to map usernames to user IDs
+// Helper function to get user directly by name (using name as document ID)
 export const getUserByName = async (name: string): Promise<User | null> => {
   try {
-    // Look up user in the users collection (simple name -> id mapping)
-    const usersCollection = collection(db, "users");
-    const q = query(usersCollection, where("name", "==", name));
-    const querySnapshot = await getDocs(q);
+    // Look up user directly in the chats collection using name as document ID
+    const userDoc = getUserDoc(name);
+    const userDataDoc = await getDoc(userDoc);
     
-    if (querySnapshot.empty) {
+    if (!userDataDoc.exists()) {
       console.log(`No user found with name: ${name}`);
       return null;
     }
     
-    // Get the user ID from the mapping
-    const userDoc = querySnapshot.docs[0];
-    const userId = userDoc.id;
-    
-    // Get the actual user data from the chats collection
-    const userDataDoc = await getDoc(getUserDoc(userId));
-    
-    if (!userDataDoc.exists()) {
-      console.log(`User data not found for ID: ${userId}`);
-      return null;
-    }
+    const userData = userDataDoc.data();
     
     // Return the user data
     return {
-      id: userId,
+      id: name, // Using name as the ID
       name: name,
-      createdAt: userDoc.data().createdAt instanceof Timestamp ? 
-        userDoc.data().createdAt.toDate() : userDoc.data().createdAt,
-      lastSeen: userDoc.data().lastSeen instanceof Timestamp ? 
-        userDoc.data().lastSeen.toDate() : userDoc.data().lastSeen
+      createdAt: userData.createdAt instanceof Timestamp ? 
+        userData.createdAt.toDate() : userData.createdAt,
+      lastSeen: userData.lastSeen instanceof Timestamp ? 
+        userData.lastSeen.toDate() : userData.lastSeen
     };
   } catch (error) {
     console.error("Error fetching user by name:", error);
@@ -108,35 +96,30 @@ export const getUserByName = async (name: string): Promise<User | null> => {
 // Helper function to create user
 export const createUserInFirebase = async (userData: any): Promise<User> => {
   try {
+    // Use name as the document ID
+    const userId = userData.name;
+    
     // Check if user already exists
-    const existingUser = await getUserByName(userData.name);
+    const existingUser = await getUserByName(userId);
     if (existingUser) {
-      console.log(`User ${userData.name} already exists, returning existing user`);
-      // Update lastSeen
-      const usersCollection = collection(db, "users");
-      const userRef = doc(usersCollection, existingUser.id);
-      await updateDoc(userRef, { lastSeen: new Date() });
+      console.log(`User ${userId} already exists, returning existing user`);
+      // Update lastSeen directly in the user document
+      const userDoc = getUserDoc(userId);
+      await updateDoc(userDoc, { lastSeen: new Date() });
       return existingUser;
     }
 
-    // Create new user
+    // Create new user using name as document ID
     const now = new Date();
-    const newUserData = {
-      name: userData.name,
-      createdAt: now,
-      lastSeen: now
-    };
     
-    // Create a new entry in the users collection (for name lookup)
-    const usersCollection = collection(db, "users");
-    const userRef = await addDoc(usersCollection, newUserData);
-    const userId = userRef.id;
-    
-    console.log(`Created new user with ID: ${userId}`);
+    console.log(`Creating new user with name as ID: ${userId}`);
     
     // Initialize the user's data structure in the chats collection
     const userDoc = getUserDoc(userId);
     await setDoc(userDoc, {
+      name: userData.name,
+      createdAt: now,
+      lastSeen: now,
       created: now
     });
     

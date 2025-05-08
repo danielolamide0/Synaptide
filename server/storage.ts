@@ -82,9 +82,8 @@ export class FirebaseStorage implements IStorage {
   async updateUserLastSeen(userId: string): Promise<void> {
     try {
       console.log(`Updating last seen for user ${userId}`);
-      // Update the user document in the users collection (for username lookup)
-      const usersCollection = collection(db, "users");
-      const userRef = doc(usersCollection, userId);
+      // Update the user document directly in the chats collection
+      const userRef = getUserDoc(userId);
       await updateDoc(userRef, { lastSeen: new Date() });
     } catch (error) {
       console.error("Error updating user last seen:", error);
