@@ -118,21 +118,23 @@ export class FirebaseStorage implements IStorage {
   // Message related methods
   async createMessage(userId: string, insertMessage: InsertMessage): Promise<Message> {
     try {
-      // Get user-specific messages collection
-      const userMessagesCollection = getUserMessagesCollection(userId);
+      console.log(`Creating message for user ${userId}:`, insertMessage);
       
-      // Add message to user's messages collection
-      const docRef = await addDoc(userMessagesCollection, {
+      // Add message to main messages collection with userId field
+      const messageData = {
         ...insertMessage,
         userId,
         timestamp: insertMessage.timestamp || new Date()
-      });
+      };
+      
+      // Add to Firestore
+      const docRef = await addDoc(messagesCollection, messageData);
+      console.log(`Created message with ID: ${docRef.id}`);
       
       // Return the newly created message with its id
       return {
-        ...insertMessage,
-        id: docRef.id,
-        userId
+        ...messageData,
+        id: docRef.id
       };
     } catch (error) {
       console.error("Error creating message:", error);
@@ -142,24 +144,22 @@ export class FirebaseStorage implements IStorage {
 
   async getMessagesForUser(userId: string): Promise<Message[]> {
     try {
-      // Get user-specific messages collection
-      const userMessagesCollection = getUserMessagesCollection(userId);
+      console.log(`Getting messages for user ${userId}`);
       
-      // Query messages ordered by timestamp
-      const q = query(userMessagesCollection, orderBy("timestamp"));
+      // Query messages where userId matches
+      const q = query(
+        messagesCollection,
+        where("userId", "==", userId),
+        orderBy("timestamp")
+      );
+      
       const querySnapshot = await getDocs(q);
+      console.log(`Found ${querySnapshot.size} messages for user ${userId}`);
       
-      // Convert Firebase docs to Message objects
+      // Convert to Message objects
       const messages: Message[] = [];
       querySnapshot.forEach((doc) => {
-        const message = convertFirebaseDocToMessage({
-          ...doc,
-          data: () => ({
-            ...doc.data(),
-            userId // Ensure userId is included
-          })
-        });
-        messages.push(message);
+        messages.push(convertFirebaseDocToMessage(doc));
       });
       
       return messages;
@@ -171,11 +171,13 @@ export class FirebaseStorage implements IStorage {
 
   async clearMessagesForUser(userId: string): Promise<void> {
     try {
-      // Get user-specific messages collection
-      const userMessagesCollection = getUserMessagesCollection(userId);
+      console.log(`Clearing messages for user ${userId}`);
       
-      // Get all messages for this user
-      const querySnapshot = await getDocs(userMessagesCollection);
+      // Query all messages for this user
+      const q = query(messagesCollection, where("userId", "==", userId));
+      const querySnapshot = await getDocs(q);
+      
+      console.log(`Found ${querySnapshot.size} messages to delete for user ${userId}`);
       
       // Delete each message document
       const deletePromises = querySnapshot.docs.map(doc => 
@@ -183,6 +185,7 @@ export class FirebaseStorage implements IStorage {
       );
       
       await Promise.all(deletePromises);
+      console.log(`Cleared all messages for user ${userId}`);
     } catch (error) {
       console.error(`Error clearing messages for user ${userId}:`, error);
       throw new Error("Failed to clear messages from Firestore");

@@ -1,5 +1,20 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, getDocs, query, orderBy, deleteDoc, DocumentData, where, doc, getDoc, setDoc } from "firebase/firestore";
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  getDocs, 
+  query, 
+  orderBy, 
+  deleteDoc, 
+  DocumentData, 
+  where, 
+  doc, 
+  getDoc, 
+  setDoc,
+  updateDoc,
+  Timestamp 
+} from "firebase/firestore";
 import { Message, UserProfile, User } from "@shared/schema";
 
 // Log environment variables for debugging
@@ -27,14 +42,66 @@ const db = getFirestore(app);
 // Collection references - using flat structure to maintain compatibility with existing rules
 const usersCollection = collection(db, "users");
 const messagesCollection = collection(db, "messages");
-const userProfileCollection = collection(db, "userProfile");
+const userProfileCollection = collection(db, "userProfiles");
 
 export { db, usersCollection, messagesCollection, userProfileCollection };
 
-// Get user-specific messages - use the main messages collection with a userId field
-// This approach works with the existing permissions
+// Get user-specific messages collection
 export const getUserMessagesCollection = (userId: string) => {
-  return messagesCollection; // Return the main messages collection
+  return collection(db, `messages`);
+};
+
+// Helper function to get user by name
+export const getUserByName = async (name: string): Promise<User | null> => {
+  try {
+    const q = query(usersCollection, where("name", "==", name));
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) {
+      console.log(`No user found with name: ${name}`);
+      return null;
+    }
+    
+    const userDoc = querySnapshot.docs[0];
+    return convertFirebaseDocToUser(userDoc);
+  } catch (error) {
+    console.error("Error fetching user by name:", error);
+    return null;
+  }
+};
+
+// Helper function to create user
+export const createUserInFirebase = async (userData: any): Promise<User> => {
+  try {
+    // Check if user already exists
+    const existingUser = await getUserByName(userData.name);
+    if (existingUser) {
+      console.log(`User ${userData.name} already exists, returning existing user`);
+      // Update lastSeen
+      const userRef = doc(usersCollection, existingUser.id);
+      await updateDoc(userRef, { lastSeen: new Date() });
+      return existingUser;
+    }
+
+    // Create new user
+    const now = new Date();
+    const newUserData = {
+      ...userData,
+      createdAt: now,
+      lastSeen: now
+    };
+    
+    const docRef = await addDoc(usersCollection, newUserData);
+    console.log(`Created new user with ID: ${docRef.id}`);
+    
+    return {
+      ...newUserData,
+      id: docRef.id
+    };
+  } catch (error) {
+    console.error("Error creating user:", error);
+    throw new Error("Failed to create user in Firebase");
+  }
 };
 
 // Helper functions for data conversion
@@ -43,8 +110,8 @@ export const convertFirebaseDocToUser = (doc: DocumentData): User => {
   return {
     id: doc.id,
     name: data.name,
-    createdAt: data.createdAt,
-    lastSeen: data.lastSeen
+    createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : data.createdAt,
+    lastSeen: data.lastSeen instanceof Timestamp ? data.lastSeen.toDate() : data.lastSeen
   };
 };
 
@@ -55,7 +122,7 @@ export const convertFirebaseDocToMessage = (doc: DocumentData): Message => {
     userId: data.userId,
     role: data.role,
     content: data.content,
-    timestamp: data.timestamp,
+    timestamp: data.timestamp instanceof Timestamp ? data.timestamp.toDate() : data.timestamp,
   };
 };
 
