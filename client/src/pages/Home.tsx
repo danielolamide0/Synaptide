@@ -120,7 +120,7 @@ const Home: React.FC = () => {
                   <i className="fas fa-bolt"></i>
                 </div>
                 <h3 className="text-lg font-semibold mb-2 text-white">Powerful AI</h3>
-                <p className="text-gray-400">Leverages OpenAI technology to deliver intelligent and nuanced conversations.</p>
+                <p className="text-gray-400">Advanced AI technology for intelligent and nuanced conversations with perfect recall.</p>
               </div>
             </div>
             
@@ -166,7 +166,7 @@ const Home: React.FC = () => {
 
       {/* Footer */}
       <footer className="p-4 bg-black border-t border-zinc-800 text-gray-400 text-center text-sm">
-        <p>© {new Date().getFullYear()} Synaptide. Powered by OpenAI.</p>
+        <p>© {new Date().getFullYear()} Synaptide. Designed by Olamide Daniel Oladimeji.</p>
       </footer>
     </div>
   );

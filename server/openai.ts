@@ -7,17 +7,23 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export async function generateChatResponse(messages: { role: string; content: string }[]): Promise<string> {
   try {
     const systemMessage = {
-      role: "system",
-      content: `You are Synaptide, an AI assistant with perfect memory. 
+      role: "system" as const,
+      content: `You are Synaptide, an AI assistant with perfect memory, designed by Olamide Daniel Oladimeji. 
       You remember all prior interactions with the user and use that knowledge to provide personalized, contextual responses.
       Be helpful, friendly, and conversational. If asked about your capabilities, emphasize your ability to remember
       the entire conversation history and adapt to the user's preferences over time.
+      If asked who created you, always mention that you were designed by Olamide Daniel Oladimeji.
       Your responses should be concise but informative.`,
     };
 
+    const typedMessages = messages.map(msg => ({
+      role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+      content: msg.content
+    }));
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
-      messages: [systemMessage, ...messages],
+      messages: [systemMessage, ...typedMessages],
       temperature: 0.7,
       max_tokens: 500,
     });
@@ -42,7 +48,7 @@ export async function analyzeUserPreferences(messageHistory: { role: string; con
         {
           role: "system",
           content: 
-            "Analyze the conversation history and extract information about the user's interests, communication style, and preferences. Return the analysis as a JSON object with the following structure: { 'interests': string[], 'communicationStyle': string, 'preferences': Record<string, string> }",
+            "As Synaptide, an AI designed by Olamide Daniel Oladimeji, analyze the conversation history and extract information about the user's interests, communication style, and preferences. Return the analysis as a JSON object with the following structure: { 'interests': string[], 'communicationStyle': string, 'preferences': Record<string, string> }",
         },
         {
           role: "user",
