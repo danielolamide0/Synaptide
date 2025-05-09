@@ -82,10 +82,10 @@ export const getUserByName = async (name: string): Promise<User | null> => {
     
     const userData = userDataDoc.data();
     
-    // Return the user data
+    // Return the user data with trimmed ID
     return {
-      id: name, // Using name as the ID
-      name: name,
+      id: trimmedName, // Using trimmed name as the ID
+      name: trimmedName,
       createdAt: userData.createdAt instanceof Timestamp ? 
         userData.createdAt.toDate() : userData.createdAt,
       lastSeen: userData.lastSeen instanceof Timestamp ? 
@@ -121,7 +121,7 @@ export const createUserInFirebase = async (userData: any): Promise<User> => {
     // Initialize the user's data structure in the chats collection
     const userDoc = getUserDoc(userId);
     await setDoc(userDoc, {
-      name: userData.name,
+      name: userId, // Store the trimmed name for consistency
       createdAt: now,
       lastSeen: now,
       created: now
@@ -131,7 +131,7 @@ export const createUserInFirebase = async (userData: any): Promise<User> => {
     const profileDoc = getUserProfileDoc(userId);
     await setDoc(profileDoc, {
       bio: {
-        name: userData.name,
+        name: userId, // Use trimmed name in profile too
         age: null,
         birthday: "",
         nationality: "",
@@ -156,7 +156,7 @@ export const createUserInFirebase = async (userData: any): Promise<User> => {
     
     return {
       id: userId,
-      name: userData.name,
+      name: userId, // Use the trimmed name consistently
       createdAt: now,
       lastSeen: now
     };

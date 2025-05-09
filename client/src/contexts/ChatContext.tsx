@@ -181,7 +181,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Failed to send message:', error);
       // Remove the temporary message on error
-      setMessages((prev) => prev.filter(m => m.id !== `temp-${Date.now()}`));
+      setMessages((prev) => prev.filter(m => m.id !== tempUserMessage.id));
       
       toast({
         title: 'Error',
