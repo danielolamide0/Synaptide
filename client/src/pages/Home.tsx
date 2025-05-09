@@ -26,8 +26,8 @@ const Home: React.FC = () => {
     setErrorMessage('');
     
     try {
-      // Use the ChatContext's loadOrCreateUser function
-      await loadOrCreateUser(userName);
+      // Use the ChatContext's loadOrCreateUser function with properly trimmed username
+      await loadOrCreateUser(userName.trim());
       
       // Navigate to chat page
       navigate('/chat');

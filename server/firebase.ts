@@ -67,8 +67,12 @@ export const getUserSummariesCollection = (userId: string) => {
 // Helper function to get user directly by name (using name as document ID)
 export const getUserByName = async (name: string): Promise<User | null> => {
   try {
-    // Look up user directly in the chats collection using name as document ID
-    const userDoc = getUserDoc(name);
+    // Trim the name to ensure consistency
+    const trimmedName = name.trim();
+    console.log(`Looking for user with trimmed name: ${trimmedName}`);
+    
+    // Look up user directly in the chats collection using trimmed name as document ID
+    const userDoc = getUserDoc(trimmedName);
     const userDataDoc = await getDoc(userDoc);
     
     if (!userDataDoc.exists()) {
@@ -96,8 +100,8 @@ export const getUserByName = async (name: string): Promise<User | null> => {
 // Helper function to create user
 export const createUserInFirebase = async (userData: any): Promise<User> => {
   try {
-    // Use name as the document ID
-    const userId = userData.name;
+    // Use trimmed name as the document ID
+    const userId = userData.name.trim();
     
     // Check if user already exists
     const existingUser = await getUserByName(userId);
@@ -109,7 +113,7 @@ export const createUserInFirebase = async (userData: any): Promise<User> => {
       return existingUser;
     }
 
-    // Create new user using name as document ID
+    // Create new user using trimmed name as document ID
     const now = new Date();
     
     console.log(`Creating new user with name as ID: ${userId}`);
