@@ -59,8 +59,8 @@ export async function analyzeUserPreferences(messageHistory: { role: string; con
       temperature: 0.3,
     });
     
-    const content = response.choices[0].message.content || "{}";
-    const result = JSON.parse(content);
+    const messageContent = response.choices[0].message.content ?? "{}";
+    const result = JSON.parse(messageContent);
     
     return {
       interests: result.interests || [],

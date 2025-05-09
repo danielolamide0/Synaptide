@@ -149,7 +149,7 @@ const Chat: React.FC = () => {
           <>
             <div className="flex items-start mb-4">
               <div className="flex-shrink-0 mr-4">
-                <Logo size="sm" />
+                <Logo size="sm" grayscale={true} />
               </div>
               <motion.div 
                 className="bg-zinc-900 rounded-lg p-4 max-w-[80%] relative shadow-md chat-bubble bot-bubble border border-zinc-800"
@@ -165,7 +165,7 @@ const Chat: React.FC = () => {
 
             <div className="flex items-start mb-4">
               <div className="flex-shrink-0 mr-4">
-                <Logo size="sm" />
+                <Logo size="sm" grayscale={true} />
               </div>
               <motion.div 
                 className="bg-zinc-900 rounded-lg p-4 max-w-[80%] relative shadow-md chat-bubble bot-bubble border border-zinc-800"
@@ -194,7 +194,7 @@ const Chat: React.FC = () => {
             >
               {message.role !== 'user' && (
                 <div className="flex-shrink-0 mr-4">
-                  <Logo size="sm" />
+                  <Logo size="sm" grayscale={true} />
                 </div>
               )}
               
