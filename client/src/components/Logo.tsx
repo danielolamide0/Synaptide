@@ -4,9 +4,10 @@ import logoImage from "@assets/IMG_5498.jpeg";
 interface LogoProps {
   size?: "sm" | "md" | "lg";
   className?: string;
+  grayscale?: boolean;
 }
 
-const Logo: React.FC<LogoProps> = ({ size = "md", className = "" }) => {
+const Logo: React.FC<LogoProps> = ({ size = "md", className = "", grayscale = true }) => {
   const sizeClasses = {
     sm: "w-8 h-8",
     md: "w-12 h-12",
@@ -18,7 +19,7 @@ const Logo: React.FC<LogoProps> = ({ size = "md", className = "" }) => {
       <img 
         src={logoImage} 
         alt="Synaptide Logo" 
-        className="w-full h-full object-cover"
+        className={`w-full h-full object-cover ${grayscale ? 'grayscale' : ''}`}
       />
     </div>
   );

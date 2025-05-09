@@ -30,7 +30,7 @@ export async function generateChatResponse(messages: { role: string; content: st
 
     return response.choices[0].message.content || "I'm having trouble generating a response. Please try again.";
   } catch (error) {
-    console.error("Error generating OpenAI response:", error);
+    console.error("Error generating AI response:", error);
     throw new Error("Failed to generate AI response");
   }
 }
@@ -46,12 +46,12 @@ export async function analyzeUserPreferences(messageHistory: { role: string; con
       model: "gpt-4o",
       messages: [
         {
-          role: "system",
+          role: "system" as const,
           content: 
             "As Synaptide, an AI designed by Olamide Daniel Oladimeji, analyze the conversation history and extract information about the user's interests, communication style, and preferences. Return the analysis as a JSON object with the following structure: { 'interests': string[], 'communicationStyle': string, 'preferences': Record<string, string> }",
         },
         {
-          role: "user",
+          role: "user" as const,
           content: `Analyze these messages to understand user preferences: ${JSON.stringify(messageHistory)}`,
         },
       ],
@@ -59,7 +59,8 @@ export async function analyzeUserPreferences(messageHistory: { role: string; con
       temperature: 0.3,
     });
     
-    const result = JSON.parse(response.choices[0].message.content);
+    const content = response.choices[0].message.content || "{}";
+    const result = JSON.parse(content);
     
     return {
       interests: result.interests || [],
