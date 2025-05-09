@@ -83,7 +83,7 @@ const Chat: React.FC = () => {
         </Button>
         
         <div className="flex items-center space-x-3">
-          <Logo size="sm" />
+          <Logo size="sm" grayscale={true} />
           <div>
             <h2 className="font-semibold text-white">Synaptide</h2>
             <div className="flex items-center text-xs text-green-400">

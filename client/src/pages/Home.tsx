@@ -49,7 +49,7 @@ const Home: React.FC = () => {
       {/* Header */}
       <header className="flex items-center justify-between p-4 md:p-6 bg-black border-b border-zinc-800">
         <div className="flex items-center space-x-2">
-          <Logo size="sm" />
+          <Logo size="sm" grayscale={true} />
           <h1 className="text-xl md:text-2xl font-semibold text-white">
             Synaptide
           </h1>
@@ -67,8 +67,8 @@ const Home: React.FC = () => {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5 }}
           >
-            <Logo size="lg" />
-            <div className="absolute inset-0 rounded-full bg-gradient-to-r from-primary/20 to-secondary/20 animate-pulse-slow"></div>
+            <Logo size="lg" grayscale={true} />
+            <div className="absolute inset-0 rounded-full bg-gradient-to-r from-gray-500/20 to-gray-700/20 animate-pulse-slow"></div>
           </motion.div>
 
           {/* Heading */}
